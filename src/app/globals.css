@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-onyx-5 text-onyx antialiased; font-variant-numeric: tabular-nums; }
+  h1, h2, h3, h4 { @apply text-aberdeen; }
+  /* Aberdeen brand: headings use the ExtraLight weight of Poppins */
+  h1 { font-weight: 200; }
+  h2, h3 { font-weight: 300; }
+  ::selection { background: #B4E0E0; color: #09375F; }
+}
+
+@layer components {
+  .calc-field {
+    @apply bg-onyx-5 text-onyx border border-onyx-20 rounded;
+    background-image: linear-gradient(180deg, rgba(9,55,95,0.02), rgba(9,55,95,0.05));
+  }
+  .brand-rule { @apply h-1 w-full bg-verdigris; }
+  .focus-ring { @apply outline-none ring-2 ring-verdigris ring-offset-1; }
+}
+
+/* Roadmap drag affordance */
+.rm-bar { cursor: grab; }
+.rm-bar:active { cursor: grabbing; }
+
+::-webkit-scrollbar { height: 10px; width: 10px; }
+::-webkit-scrollbar-track { background: #F7F7F7; }
+::-webkit-scrollbar-thumb { background: #D6D6D6; border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: #9A9A9A; }
