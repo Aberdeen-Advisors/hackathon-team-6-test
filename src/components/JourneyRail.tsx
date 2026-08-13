@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStore, useDerived } from '@/lib/store/store';
 import { portfolioTotals } from '@/lib/calc/financials';
+import { INTAKE_SECTIONS, PHASE_QUESTIONNAIRES, totalIntakeQuestions, totalPhaseQuestions } from '@/data/methodology';
 
 export interface JourneyStep {
   key: string; label: string; href: string; done: boolean; detail: string;
@@ -11,7 +12,13 @@ export interface JourneyStep {
 
 /** Completion is computed from the model, never self-reported. */
 export function useJourney(): JourneyStep[] {
-  const { model, publications, submissions } = useStore();
+  const { model, publications, submissions, answers } = useStore();
+  const answered = (ids: string[]) => ids.filter((id) => {
+    const a = answers[id];
+    return a && (Array.isArray(a.value) ? a.value.some((x) => x.trim()) : String(a.value).trim().length > 0);
+  }).length;
+  const intakeAnswered = answered(INTAKE_SECTIONS.flatMap((s) => s.questions.map((q) => q.id)));
+  const phaseAnswered = answered(PHASE_QUESTIONNAIRES.flatMap((p) => p.sections.flatMap((s) => s.questions.map((q) => q.id))));
   const { oppScore } = useDerived();
 
   const scored = model.opportunities.filter((o) => oppScore[o.id] !== null).length;
@@ -20,12 +27,15 @@ export function useJourney(): JourneyStep[] {
     (n, d) => n + Object.values(d.decisions).filter((x) => x.status === 'accepted').length, 0);
 
   return [
-    { key: 'kickoff', label: 'Kickoff', href: '/workspace/kickoff',
-      done: !!model.kickoff.completedAt,
-      detail: model.kickoff.completedAt ? `${model.kickoff.primaryObjectives.length} objectives captured` : 'Mandate, objectives, stakeholders, document requests' },
+    { key: 'setup', label: 'Setup', href: '/workspace/intake',
+      done: intakeAnswered >= 12,
+      detail: `${intakeAnswered} of ${totalIntakeQuestions} intake answers` },
     { key: 'sources', label: 'Sources', href: '/workspace/sources',
       done: accepted > 0,
       detail: model.documents.length === 0 ? 'Upload and synthesise engagement material' : `${model.documents.length} document${model.documents.length === 1 ? '' : 's'} · ${accepted} finding${accepted === 1 ? '' : 's'} accepted` },
+    { key: 'phases', label: 'Phase questions', href: '/workspace/phases',
+      done: phaseAnswered >= 10,
+      detail: `${phaseAnswered} of ${totalPhaseQuestions} phase answers` },
     { key: 'current', label: 'Current state', href: '/workspace/current-state',
       done: model.capabilities.length > 0,
       detail: `${model.capabilities.length} capabilities assessed` },
@@ -57,7 +67,7 @@ export function JourneyRail() {
         {steps.map((s, i) => {
           const active = pathname === s.href;
           return (
-            <li key={s.key} className="flex-1 min-w-[150px]">
+            <li key={s.key} className="flex-1 min-w-[132px]">
               <Link href={s.href}
                 className={`block h-full px-4 py-3 border-r border-onyx-10 last:border-r-0 transition-colors ${
                   active ? 'bg-aberdeen text-white' : s.done ? 'bg-aberdeen-50 hover:bg-aberdeen-100' : 'bg-white hover:bg-onyx-5'

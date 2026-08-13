@@ -9,7 +9,7 @@ export default function Home() {
   useEffect(() => {
     if (!ready) return;
     if (!session) router.replace('/login');
-    else router.replace(session.role === 'aberdeen' ? '/workspace' : '/portal');
+    else router.replace(session.role === 'aberdeen' ? '/engagements' : '/portal');
   }, [session, ready, router]);
   return null;
 }

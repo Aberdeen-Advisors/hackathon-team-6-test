@@ -8,10 +8,14 @@ import {
   Card, Button, Badge, Modal, Toast, Field, inputCls, Banner, SectionTitle, EmptyState, SidePanel,
 } from '@/components/ui';
 import { parseDocx, FUTURE_FORMATS } from '@/lib/ingest/docx';
+import { generateInsights, CLASS_META, type Insight, type InsightClass } from '@/lib/insights/engine';
+import { buildPrefills } from '@/lib/ingest/prefill';
+import { INTAKE_SECTIONS, PHASE_QUESTIONNAIRES } from '@/data/methodology';
+import Link from 'next/link';
 import type { Candidate, CandidateKind } from '@/lib/ingest/synthesise';
 import { money } from '@/lib/calc/financials';
 
-type Stage = 'idle' | 'reading' | 'parsing' | 'synthesising' | 'done' | 'error';
+type Stage = 'idle' | 'reading' | 'parsing' | 'synthesising' | 'analysing' | 'mapping' | 'done' | 'error';
 
 const KIND_META: Record<CandidateKind, { label: string; tone: 'brand' | 'accent' | 'warn' | 'danger' | 'ok'; lands: string }> = {
   objective:   { label: 'Objective',  tone: 'brand',  lands: 'Transformation objectives — becomes selectable in strategic-alignment scoring' },
@@ -22,13 +26,15 @@ const KIND_META: Record<CandidateKind, { label: string; tone: 'brand' | 'accent'
 };
 
 export default function SourcesPage() {
-  const { model, addDocument, removeDocument, acceptCandidate, rejectCandidate } = useStore();
+  const { model, addDocument, removeDocument, acceptCandidate, rejectCandidate, addInsightDecision, suggestAnswer, isBlank } = useStore();
   const [stage, setStage] = useState<Stage>('idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [openDoc, setOpenDoc] = useState<string | null>(null);
   const [accepting, setAccepting] = useState<{ docId: string; c: Candidate } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [prefillCount, setPrefillCount] = useState(0);
+  const [insightTab, setInsightTab] = useState<'insights' | 'candidates'>('insights');
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {
@@ -46,16 +52,36 @@ export default function SourcesPage() {
       const structure = await parseDocx(file);
 
       setStage('synthesising');
-      setProgress(`Synthesising ${structure.paragraphs.length} paragraphs across ${structure.sections.length} sections…`);
+      setProgress(`Reading ${structure.paragraphs.length} paragraphs across ${structure.sections.length} sections…`);
       const { synthesise } = await import('@/lib/ingest/synthesise');
-      await new Promise((r) => setTimeout(r, 420));
+      await new Promise((r) => setTimeout(r, 360));
       const synthesis = synthesise(structure);
 
-      const id = addDocument(file.name, 'client_document', structure, synthesis);
+      setStage('analysing');
+      setProgress('Looking across the evidence for what a partner would react to…');
+      await new Promise((r) => setTimeout(r, 520));
+      const insights = generateInsights(structure);
+
+      setStage('mapping');
+      setProgress('Matching evidence to open questionnaire questions…');
+      await new Promise((r) => setTimeout(r, 320));
+      const prefills = buildPrefills(structure);
+
+      const id = addDocument(file.name, 'client_document', structure, synthesis, insights);
+      const allQ = new Map([...INTAKE_SECTIONS.flatMap((x) => x.questions), ...PHASE_QUESTIONNAIRES.flatMap((p) => p.sections.flatMap((x) => x.questions))].map((x) => [x.id, x]));
+      for (const pf of prefills) {
+        if (!allQ.has(pf.questionId)) continue;
+        suggestAnswer(pf.questionId, {
+          value: pf.value, documentId: id, documentName: file.name,
+          excerpt: pf.excerpt, paragraphIndex: pf.paragraphIndex, confidence: pf.confidence, status: 'pending',
+        });
+      }
+
       setStage('done');
-      setProgress(`${synthesis.candidates.length} candidate findings extracted from ${structure.wordCount.toLocaleString()} words.`);
+      setPrefillCount(prefills.length);
+      setProgress(`${insights.length} insights, ${synthesis.candidates.length} candidate findings and ${prefills.length} suggested questionnaire answers.`);
       setOpenDoc(id);
-      setToast(`${file.name} synthesised — ${synthesis.candidates.length} findings ready for review.`);
+      setToast(`${file.name} analysed — ${insights.length} insights and ${prefills.length} suggested answers ready for review.`);
     } catch (e) {
       setStage('error');
       setError(e instanceof Error ? e.message : 'The document could not be read.');
@@ -63,7 +89,7 @@ export default function SourcesPage() {
   }
 
   const doc = openDoc ? model.documents.find((d) => d.id === openDoc) : null;
-  const busy = stage === 'reading' || stage === 'parsing' || stage === 'synthesising';
+  const busy = ['reading', 'parsing', 'synthesising', 'analysing', 'mapping'].includes(stage);
 
   return (
     <div className="p-6">
@@ -90,9 +116,10 @@ export default function SourcesPage() {
                     {progress}
                   </div>
                   <div className="flex justify-center gap-1.5">
-                    {['reading', 'parsing', 'synthesising'].map((s) => (
-                      <span key={s} className={`h-1 w-20 rounded-full ${
-                        ['reading', 'parsing', 'synthesising'].indexOf(stage) >= ['reading', 'parsing', 'synthesising'].indexOf(s)
+                    {(['reading', 'parsing', 'synthesising', 'analysing', 'mapping'] as const).map((st) => (
+                      <span key={st} className={`h-1 w-14 rounded-full ${
+                        (['reading', 'parsing', 'synthesising', 'analysing', 'mapping'] as string[]).indexOf(stage) >=
+                        (['reading', 'parsing', 'synthesising', 'analysing', 'mapping'] as string[]).indexOf(st)
                           ? 'bg-verdigris' : 'bg-onyx-10'
                       }`} />
                     ))}
@@ -123,7 +150,14 @@ export default function SourcesPage() {
               </div>
             )}
             {stage === 'done' && !busy && (
-              <div className="mt-3"><Banner tone="accent">{progress}</Banner></div>
+              <div className="mt-3 space-y-2">
+                <Banner tone="accent">{progress}</Banner>
+                {prefillCount > 0 && (
+                  <Banner tone="accent" action={<Link href="/workspace/intake"><Button size="sm">Review answers</Button></Link>}>
+                    {prefillCount} questionnaire answer{prefillCount === 1 ? '' : 's'} suggested from this document.
+                  </Banner>
+                )}
+              </div>
             )}
           </Card>
 
@@ -219,7 +253,39 @@ export default function SourcesPage() {
               ))}
             </div>
 
-            {doc.synthesis.themes.length > 0 && (
+            <div className="flex gap-1.5">
+              {([['insights', `Insights (${doc.insights.length})`], ['candidates', `Structured findings (${doc.synthesis.candidates.length})`]] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setInsightTab(k)}
+                  className={`rounded-sm border px-3 py-1.5 text-2xs transition-colors ${
+                    insightTab === k ? 'bg-aberdeen text-white border-aberdeen' : 'bg-white text-onyx border-onyx-20 hover:border-aberdeen-200'
+                  }`}>{label}</button>
+              ))}
+            </div>
+
+            {insightTab === 'insights' && (
+              <div>
+                <SectionTitle note="cross-document analysis — accept, edit, reject or reclassify each">
+                  What a partner would take from this
+                </SectionTitle>
+                {doc.insights.length === 0 ? (
+                  <p className="text-[13px] text-onyx-60 leading-relaxed">
+                    No insights fired. The engine only emits an insight when it can find the specifics — the systems,
+                    the counts, the quoted language. A document without those produces nothing rather than a generic
+                    observation.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {doc.insights.map((ins) => (
+                      <InsightCard key={ins.id} insight={ins}
+                        decision={doc.insightDecisions[ins.id]}
+                        onDecide={(status, note, newClass) => addInsightDecision(doc.id, ins.id, status, note, newClass)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {insightTab === 'candidates' && doc.synthesis.themes.length > 0 && (
               <div>
                 <SectionTitle note="clustered by topic across the document">Themes</SectionTitle>
                 <div className="space-y-2">
@@ -236,7 +302,7 @@ export default function SourcesPage() {
               </div>
             )}
 
-            {doc.synthesis.takeaways.length > 0 && (
+            {insightTab === 'candidates' && doc.synthesis.takeaways.length > 0 && (
               <div>
                 <SectionTitle>Key takeaways</SectionTitle>
                 <ul className="space-y-1.5">
@@ -250,7 +316,7 @@ export default function SourcesPage() {
               </div>
             )}
 
-            {doc.synthesis.watchOuts.length > 0 && (
+            {insightTab === 'candidates' && doc.synthesis.watchOuts.length > 0 && (
               <div>
                 <SectionTitle>Watch-outs</SectionTitle>
                 <div className="space-y-1.5">
@@ -264,7 +330,7 @@ export default function SourcesPage() {
               </div>
             )}
 
-            <div>
+            {insightTab === 'candidates' && <div>
               <SectionTitle note="nothing enters the model until accepted">Candidate findings</SectionTitle>
               {doc.synthesis.candidates.length === 0 ? (
                 <p className="text-[13px] text-onyx-60 leading-relaxed">
@@ -315,7 +381,7 @@ export default function SourcesPage() {
                   })}
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         )}
       </SidePanel>
@@ -448,5 +514,107 @@ function AcceptModal({
         </Button>
       </div>
     </Modal>
+  );
+}
+
+/* ─────────────────────────────────────────────── partner-quality insight card */
+
+function InsightCard({
+  insight, decision, onDecide,
+}: {
+  insight: Insight;
+  decision?: { status: string; note?: string; newClass?: string };
+  onDecide: (status: 'accepted' | 'rejected' | 'reclassified', note?: string, newClass?: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reclass, setReclass] = useState(false);
+  const cls = (decision?.newClass as InsightClass) ?? insight.classification;
+  const meta = CLASS_META[cls];
+
+  const confTone = insight.confidence === 'high' ? 'ok' : insight.confidence === 'medium' ? 'warn' : 'danger';
+  const classTone = cls === 'contradiction' ? 'danger' : cls === 'gap' ? 'warn' : cls === 'fact' ? 'brand' : 'accent';
+
+  return (
+    <div className={`border rounded ${decision?.status === 'accepted' ? 'border-jade/50 bg-jade-tint'
+      : decision?.status === 'rejected' ? 'border-onyx-20 bg-onyx-5 opacity-60' : 'border-onyx-20'}`}>
+      <button onClick={() => setOpen((v) => !v)} className="w-full text-left px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-[13px] font-medium text-aberdeen leading-snug">{insight.headline}</p>
+          <span className="text-onyx-40 text-xs shrink-0 mt-0.5">{open ? '−' : '+'}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          <Badge tone={classTone as 'brand'}>{meta.label}</Badge>
+          <Badge tone={confTone as 'ok'}>{insight.confidence} confidence</Badge>
+          <span className="text-2xs text-onyx-40">{insight.evidence.length} evidence item{insight.evidence.length === 1 ? '' : 's'}</span>
+          {insight.topics.slice(0, 2).map((t) => <span key={t} className="text-2xs text-onyx-40">· {t}</span>)}
+          {decision?.status === 'accepted' && <Badge tone="ok">Accepted</Badge>}
+          {decision?.status === 'rejected' && <Badge>Rejected</Badge>}
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 space-y-3 border-t border-onyx-10 pt-3">
+          {([
+            ['What we observed', insight.observed],
+            ['Why it matters', insight.whyItMatters],
+            ['Likely root cause', insight.rootCause],
+            ['Roadmap implication', insight.roadmapImplication],
+            ['Recommended response', insight.recommendedResponse],
+          ] as [string, string | null][]).filter(([, v]) => v).map(([label, v]) => (
+            <div key={label}>
+              <div className="text-2xs uppercase tracking-wide text-onyx-60 mb-1">{label}</div>
+              <p className="text-[13px] text-onyx leading-relaxed">{v}</p>
+            </div>
+          ))}
+
+          <div>
+            <div className="text-2xs uppercase tracking-wide text-onyx-60 mb-1">Evidence</div>
+            <div className="space-y-1.5">
+              {insight.evidence.map((e, i) => (
+                <div key={i} className="rounded border border-onyx-20 bg-white px-3 py-2">
+                  <p className="text-2xs text-onyx leading-relaxed">&ldquo;{e.excerpt}&rdquo;</p>
+                  <p className="text-2xs text-onyx-40 mt-1">{e.documentName} · {e.section} · paragraph {e.paragraphIndex + 1}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <div className="text-2xs uppercase tracking-wide text-onyx-60 mb-1">Confidence</div>
+              <p className="text-2xs text-onyx leading-relaxed">{insight.confidenceReason}</p>
+            </div>
+            <div>
+              <div className="text-2xs uppercase tracking-wide text-onyx-60 mb-1">Classification</div>
+              <p className="text-2xs text-onyx leading-relaxed">{meta.note}</p>
+            </div>
+          </div>
+
+          <div className="rounded border border-verdigris-200 bg-verdigris-50 px-3 py-2">
+            <div className="text-2xs uppercase tracking-wide text-onyx-60 mb-1">Open question</div>
+            <p className="text-[13px] text-aberdeen leading-relaxed">{insight.openQuestion}</p>
+          </div>
+
+          {!decision && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <Button size="sm" variant="primary" onClick={() => onDecide('accepted')}>Accept</Button>
+              <Button size="sm" onClick={() => setReclass((v) => !v)}>Reclassify</Button>
+              <Button size="sm" variant="ghost" onClick={() => onDecide('rejected')}>Reject</Button>
+            </div>
+          )}
+
+          {reclass && !decision && (
+            <div className="flex flex-wrap gap-1.5">
+              {(Object.keys(CLASS_META) as InsightClass[]).map((k) => (
+                <button key={k} onClick={() => { onDecide('reclassified', undefined, k); setReclass(false); }}
+                  className="rounded-sm border border-onyx-20 px-2 py-1 text-2xs text-onyx hover:border-verdigris hover:bg-verdigris-50">
+                  {CLASS_META[k].label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

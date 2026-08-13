@@ -10,8 +10,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       variant="workspace"
       nav={[
         { href: '/workspace', label: 'Overview' },
-        { href: '/workspace/kickoff', label: 'Kickoff' },
+        { href: '/workspace/intake', label: 'Setup' },
         { href: '/workspace/sources', label: 'Sources' },
+        { href: '/workspace/phases', label: 'Phase questions' },
         { href: '/workspace/opportunities', label: 'Opportunities' },
         { href: '/workspace/current-state', label: 'Current State' },
         { href: '/workspace/roadmap', label: 'Roadmap' },

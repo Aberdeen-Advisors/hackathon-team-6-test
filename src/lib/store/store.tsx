@@ -20,9 +20,12 @@ import {
 import type { Level } from '@/data/seed';
 import type {
   AppState, Model, Session, Publication, Submission, SubmissionType, Dependency,
-  KickoffAnswers, Objective, Risk, IngestedDocument,
+  KickoffAnswers, Objective, Risk, IngestedDocument, Engagement, EngagementMode, Answer,
 } from './types';
 import type { Candidate, DocStructure, Synthesis } from '@/lib/ingest/synthesise';
+import type { Insight } from '@/lib/insights/engine';
+import { DEMO_ANSWERS } from '@/data/demoAnswers';
+import { blankModel } from './factories';
 import { emptyFinancials, type Financials, initiativeTotals, phaseInitiative, sumSeries, portfolioTotals, completeness } from '@/lib/calc/financials';
 import { buildClientPayload, diffPayloads, type PublishSelection } from '@/lib/publish/buildClientPayload';
 import { weightedScore, priorityBand, durationQuarters, earliestStart, detectConflicts, periodToIndex } from '@/lib/calc';
@@ -84,32 +87,43 @@ function seedModel(): Model {
   };
 }
 
-function seedState(): AppState {
+function makeDemoEngagement(): Engagement {
   const model = seedModel();
   const selection: PublishSelection = {
     opportunityIds: OPPORTUNITIES.filter((o) => o.published).map((o) => o.id),
-    includeCapabilities: true,
-    includeRoadmap: true,
-    includeDependencies: true,
-    includeRisks: true,
-    includeFinancials: true,
+    includeCapabilities: true, includeRoadmap: true, includeDependencies: true,
+    includeRisks: true, includeFinancials: true,
   };
-  const snapshot = buildClientPayload(model, selection);
   return {
-    session: null,
+    id: 'ENG-DEMO', mode: 'demo',
+    label: `${ENGAGEMENT.clientName} — ${ENGAGEMENT.name}`,
+    clientName: ENGAGEMENT.clientName,
+    createdAt: '2026-11-04T09:00:00.000Z', createdBy: 'Liv DeSantis',
+    answers: DEMO_ANSWERS,
     model,
-    publications: [
-      {
-        version: 1,
-        publishedAt: '2027-01-14T10:00:00.000Z',
-        publishedBy: 'Liv DeSantis',
-        note: 'Initial roadmap published for executive review ahead of the alignment session.',
-        snapshot,
-      },
-    ],
+    publications: [{
+      version: 1, publishedAt: '2027-01-14T10:00:00.000Z', publishedBy: 'Liv DeSantis',
+      note: 'Initial roadmap published for executive review ahead of the alignment session.',
+      snapshot: buildClientPayload(model, selection),
+    }],
     submissions: [],
     lastPublishedModelHash: hashModel(model),
   };
+}
+
+function makeBlankEngagement(label: string, clientName: string, by: string): Engagement {
+  const model = blankModel();
+  return {
+    id: `ENG-${Date.now().toString(36).toUpperCase()}`, mode: 'blank',
+    label, clientName, createdAt: new Date().toISOString(), createdBy: by,
+    answers: {}, model, publications: [], submissions: [],
+    lastPublishedModelHash: hashModel(model),
+  };
+}
+
+function seedState(): AppState {
+  const demo = makeDemoEngagement();
+  return { session: null, engagements: { [demo.id]: demo }, activeId: null };
 }
 
 function hashModel(m: Model): string {
@@ -127,6 +141,24 @@ function hashModel(m: Model): string {
 
 interface Ctx extends AppState {
   ready: boolean;
+  /** Active engagement accessors — every screen reads through these. */
+  engagement: Engagement | null;
+  model: Model;
+  publications: Publication[];
+  submissions: Submission[];
+  answers: Record<string, Answer>;
+  mode: EngagementMode;
+  isBlank: boolean;
+  openEngagement: (id: string) => void;
+  closeEngagement: () => void;
+  createBlankEngagement: (label: string, clientName: string) => string;
+  deleteEngagement: (id: string) => void;
+  resetDemoEngagement: () => void;
+  setAnswer: (questionId: string, value: string | string[], source?: 'manual' | 'ai_accepted') => void;
+  suggestAnswer: (questionId: string, s: NonNullable<Answer['suggestion']>) => void;
+  resolveSuggestion: (questionId: string, decision: 'accepted' | 'rejected' | 'edited', value?: string) => void;
+  resolveConflict: (questionId: string, keep: 'existing' | 'new') => void;
+  addInsightDecision: (docId: string, insightId: string, status: 'accepted' | 'rejected' | 'reclassified', note?: string, newClass?: string) => void;
   signIn: (email: string, password: string) => { ok: boolean; error?: string };
   signOut: () => void;
   switchRole: (role: 'aberdeen' | 'client') => void;
@@ -142,7 +174,7 @@ interface Ctx extends AppState {
   submitFeedback: (type: SubmissionType, targetRef: string, targetLabel: string, payload: Record<string, unknown>, comment: string) => void;
   reviewSubmission: (id: string, decision: 'accepted' | 'rejected', note: string) => void;
   saveKickoff: (k: Partial<KickoffAnswers>, complete?: boolean) => void;
-  addDocument: (filename: string, docType: string, structure: DocStructure, synthesis: Synthesis) => string;
+  addDocument: (filename: string, docType: string, structure: DocStructure, synthesis: Synthesis, insights?: Insight[]) => string;
   removeDocument: (id: string) => void;
   acceptCandidate: (docId: string, candidate: Candidate, target: Record<string, string>) => string;
   rejectCandidate: (docId: string, candidateId: string, note?: string) => void;
@@ -201,10 +233,155 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const resetDemo = useCallback(() => {
     localStorage.removeItem(KEY);
-    setState(seedState());
+    setState((s) => ({ ...seedState(), session: s.session }));
   }, []);
 
-  const mutate = (fn: (m: Model) => Model) => setState((s) => ({ ...s, model: fn(s.model) }));
+  /* Every mutation is scoped to the active engagement. There is no code path that can
+     write to one engagement while another is open, which is what keeps demo data out of a
+     blank engagement. */
+  const patchEngagement = (fn: (e: Engagement) => Engagement) =>
+    setState((s) => {
+      if (!s.activeId) return s;
+      const e = s.engagements[s.activeId];
+      if (!e) return s;
+      return { ...s, engagements: { ...s.engagements, [s.activeId]: fn(e) } };
+    });
+
+  const mutate = (fn: (m: Model) => Model) => patchEngagement((e) => ({ ...e, model: fn(e.model) }));
+
+  const openEngagement = useCallback((id: string) => setState((s) => ({ ...s, activeId: id })), []);
+  const closeEngagement = useCallback(() => setState((s) => ({ ...s, activeId: null })), []);
+
+  const createBlankEngagement: Ctx['createBlankEngagement'] = useCallback((label, clientName) => {
+    let id = '';
+    setState((s) => {
+      const e = makeBlankEngagement(label, clientName, s.session?.name ?? 'Aberdeen');
+      id = e.id;
+      return { ...s, engagements: { ...s.engagements, [e.id]: e }, activeId: e.id };
+    });
+    return id;
+  }, []);
+
+  const deleteEngagement: Ctx['deleteEngagement'] = useCallback((id) => {
+    setState((s) => {
+      if (id === 'ENG-DEMO') return s;                       // the demo is not deletable
+      const next = { ...s.engagements };
+      delete next[id];
+      return { ...s, engagements: next, activeId: s.activeId === id ? null : s.activeId };
+    });
+  }, []);
+
+  const resetDemoEngagement: Ctx['resetDemoEngagement'] = useCallback(() => {
+    setState((s) => ({ ...s, engagements: { ...s.engagements, 'ENG-DEMO': makeDemoEngagement() } }));
+  }, []);
+
+  /* ---------------------------------------------------------------- answers */
+
+  const setAnswer: Ctx['setAnswer'] = useCallback((questionId, value, source = 'manual') => {
+    patchEngagement((e) => {
+      const prev = e.answers[questionId];
+      const who = 'user';
+      const next: Answer = {
+        questionId, value, source,
+        updatedAt: new Date().toISOString(), updatedBy: who,
+        suggestion: prev?.suggestion ? { ...prev.suggestion, status: source === 'manual' ? 'edited' : prev.suggestion.status } : undefined,
+        conflict: prev?.conflict,
+        history: prev ? [...prev.history, { value: prev.value, source: prev.source, at: prev.updatedAt, by: prev.updatedBy }] : [],
+      };
+      return { ...e, answers: { ...e.answers, [questionId]: next } };
+    });
+  }, []);
+
+  const suggestAnswer: Ctx['suggestAnswer'] = useCallback((questionId, suggestion) => {
+    patchEngagement((e) => {
+      const prev = e.answers[questionId];
+      // A confirmed manual answer is authoritative. A contradicting document raises a
+      // conflict for a human to resolve; it never overwrites (PRD section 7 of the brief).
+      if (prev && prev.source === 'manual' && String(prev.value).trim().length > 0) {
+        if (String(prev.value).trim().toLowerCase() === suggestion.value.trim().toLowerCase()) return e;
+        return {
+          ...e,
+          answers: {
+            ...e.answers,
+            [questionId]: {
+              ...prev,
+              conflict: {
+                documentId: suggestion.documentId, documentName: suggestion.documentName,
+                excerpt: suggestion.excerpt, suggestedValue: suggestion.value,
+                raisedAt: new Date().toISOString(),
+              },
+            },
+          },
+        };
+      }
+      return {
+        ...e,
+        answers: {
+          ...e.answers,
+          [questionId]: {
+            questionId, value: prev?.value ?? '', source: 'manual',
+            updatedAt: new Date().toISOString(), updatedBy: 'system',
+            suggestion: { ...suggestion, status: 'pending' },
+            history: prev?.history ?? [],
+          },
+        },
+      };
+    });
+  }, []);
+
+  const resolveSuggestion: Ctx['resolveSuggestion'] = useCallback((questionId, decision, value) => {
+    patchEngagement((e) => {
+      const prev = e.answers[questionId];
+      if (!prev?.suggestion) return e;
+      if (decision === 'rejected') {
+        return { ...e, answers: { ...e.answers, [questionId]: { ...prev, suggestion: { ...prev.suggestion, status: 'rejected' } } } };
+      }
+      const finalValue = decision === 'edited' ? (value ?? prev.suggestion.value) : prev.suggestion.value;
+      return {
+        ...e,
+        answers: {
+          ...e.answers,
+          [questionId]: {
+            ...prev,
+            value: finalValue,
+            source: decision === 'edited' ? 'manual' : 'ai_accepted',
+            updatedAt: new Date().toISOString(), updatedBy: 'user',
+            suggestion: { ...prev.suggestion, status: decision },
+            history: [...prev.history, { value: prev.value, source: prev.source, at: prev.updatedAt, by: prev.updatedBy }],
+          },
+        },
+      };
+    });
+  }, []);
+
+  const resolveConflict: Ctx['resolveConflict'] = useCallback((questionId, keep) => {
+    patchEngagement((e) => {
+      const prev = e.answers[questionId];
+      if (!prev?.conflict) return e;
+      if (keep === 'existing') {
+        return { ...e, answers: { ...e.answers, [questionId]: { ...prev, conflict: undefined } } };
+      }
+      return {
+        ...e,
+        answers: {
+          ...e.answers,
+          [questionId]: {
+            ...prev, value: prev.conflict.suggestedValue, source: 'ai_accepted',
+            updatedAt: new Date().toISOString(), updatedBy: 'user', conflict: undefined,
+            history: [...prev.history, { value: prev.value, source: prev.source, at: prev.updatedAt, by: prev.updatedBy }],
+          },
+        },
+      };
+    });
+  }, []);
+
+  const addInsightDecision: Ctx['addInsightDecision'] = useCallback((docId, insightId, status, note, newClass) => {
+    mutate((m) => ({
+      ...m,
+      documents: m.documents.map((d) =>
+        d.id !== docId ? d : { ...d, insightDecisions: { ...d.insightDecisions, [insightId]: { status, note, newClass } } }),
+    }));
+  }, []);
 
   const setDimensionScore: Ctx['setDimensionScore'] = useCallback((oppId, dimensionKey, level, rationale, source = 'human') => {
     mutate((m) => ({
@@ -264,43 +441,38 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const publish: Ctx['publish'] = useCallback((selection, note) => {
-    setState((s) => {
-      const snapshot = buildClientPayload(s.model, selection);
-      const version = (s.publications[s.publications.length - 1]?.version ?? 0) + 1;
+    patchEngagement((e) => {
+      const snapshot = buildClientPayload(e.model, selection);
+      const version = (e.publications[e.publications.length - 1]?.version ?? 0) + 1;
       return {
-        ...s,
-        publications: [
-          ...s.publications,
-          { version, publishedAt: new Date().toISOString(), publishedBy: s.session?.name ?? 'Aberdeen', note, snapshot },
-        ],
-        lastPublishedModelHash: hashModel(s.model),
+        ...e,
+        publications: [...e.publications, { version, publishedAt: new Date().toISOString(), publishedBy: 'Aberdeen', note, snapshot }],
+        lastPublishedModelHash: hashModel(e.model),
       };
     });
   }, []);
 
   const submitFeedback: Ctx['submitFeedback'] = useCallback((type, targetRef, targetLabel, payload, comment) => {
-    setState((s) => ({
-      ...s,
+    patchEngagement((e) => ({
+      ...e,
       submissions: [
         {
           id: `SUB-${Date.now().toString(36).toUpperCase()}`,
           type, targetRef, targetLabel, payload, comment,
-          submittedBy: s.session?.email ?? 'client',
-          submittedByName: s.session?.name ?? 'Client',
-          createdAt: new Date().toISOString(),
-          status: 'pending',
+          submittedBy: 'client', submittedByName: 'Client Executive',
+          createdAt: new Date().toISOString(), status: 'pending',
         },
-        ...s.submissions,
+        ...e.submissions,
       ],
     }));
   }, []);
 
   /** Accepting a submission APPLIES the change to the working model. Rejecting does not. */
   const reviewSubmission: Ctx['reviewSubmission'] = useCallback((id, decision, note) => {
-    setState((s) => {
-      const sub = s.submissions.find((x) => x.id === id);
-      if (!sub) return s;
-      let model = s.model;
+    patchEngagement((eng) => {
+      const sub = eng.submissions.find((x) => x.id === id);
+      if (!sub) return eng;
+      let model = eng.model;
 
       if (decision === 'accepted') {
         if (sub.type === 'ranking') {
@@ -355,45 +527,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
 
       return {
-        ...s,
+        ...eng,
         model,
-        submissions: s.submissions.map((x) =>
-          x.id !== id
-            ? x
-            : { ...x, status: decision, reviewNote: note, reviewedBy: s.session?.name ?? 'Aberdeen', reviewedAt: new Date().toISOString() },
+        submissions: eng.submissions.map((x) =>
+          x.id !== id ? x : { ...x, status: decision, reviewNote: note, reviewedBy: 'Aberdeen', reviewedAt: new Date().toISOString() },
         ),
       };
     });
   }, []);
 
   const saveKickoff: Ctx['saveKickoff'] = useCallback((k, complete) => {
-    setState((s) => ({
-      ...s,
+    patchEngagement((e) => ({
+      ...e,
       model: {
-        ...s.model,
-        kickoff: { ...s.model.kickoff, ...k, completedAt: complete ? new Date().toISOString() : s.model.kickoff.completedAt },
+        ...e.model,
+        kickoff: { ...e.model.kickoff, ...k, completedAt: complete ? new Date().toISOString() : e.model.kickoff.completedAt },
         // Objectives captured at kickoff become selectable in strategic-alignment scoring.
         objectives: complete || k.primaryObjectives
           ? [
-              ...s.model.objectives.filter((o) => o.source !== 'kickoff'),
-              ...((k.primaryObjectives ?? s.model.kickoff.primaryObjectives) || [])
+              ...e.model.objectives.filter((o) => o.source !== 'kickoff'),
+              ...((k.primaryObjectives ?? e.model.kickoff.primaryObjectives) || [])
                 .filter((t) => t.trim().length > 2)
                 .map((title, i) => ({ id: `OBJ-K${i + 1}`, title: title.trim(), source: 'kickoff' as const })),
             ]
-          : s.model.objectives,
+          : e.model.objectives,
       },
     }));
   }, []);
 
-  const addDocument: Ctx['addDocument'] = useCallback((filename, docType, structure, synthesis) => {
+  const addDocument: Ctx['addDocument'] = useCallback((filename, docType, structure, synthesis, insights = []) => {
     const id = `DOC-${Date.now().toString(36).toUpperCase()}`;
-    setState((s) => ({
-      ...s,
+    patchEngagement((e) => ({
+      ...e,
       model: {
-        ...s.model,
+        ...e.model,
         documents: [
-          { id, filename, docType, uploadedAt: new Date().toISOString(), uploadedBy: s.session?.name ?? 'Aberdeen', structure, synthesis, decisions: {} },
-          ...s.model.documents,
+          { id, filename, docType, uploadedAt: new Date().toISOString(), uploadedBy: 'Aberdeen',
+            structure, synthesis, insights, decisions: {}, insightDecisions: {} },
+          ...e.model.documents,
         ],
       },
     }));
@@ -401,7 +572,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeDocument: Ctx['removeDocument'] = useCallback((id) => {
-    setState((s) => ({ ...s, model: { ...s.model, documents: s.model.documents.filter((d) => d.id !== id) } }));
+    patchEngagement((e) => ({ ...e, model: { ...e.model, documents: e.model.documents.filter((d) => d.id !== id) } }));
   }, []);
 
   /**
@@ -410,8 +581,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    */
   const acceptCandidate: Ctx['acceptCandidate'] = useCallback((docId, c, target) => {
     let landedAs = '';
-    setState((s) => {
-      let m = s.model;
+    patchEngagement((eng) => {
+      let m = eng.model;
       const doc = m.documents.find((d) => d.id === docId);
       const ref = `${doc?.filename ?? 'document'} · ${c.section} · paragraph ${c.paragraphIndex + 1}`;
 
@@ -511,7 +682,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
 
       return {
-        ...s,
+        ...eng,
         model: {
           ...m,
           documents: m.documents.map((d) =>
@@ -524,11 +695,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const rejectCandidate: Ctx['rejectCandidate'] = useCallback((docId, candidateId, note) => {
-    setState((s) => ({
-      ...s,
+    patchEngagement((e) => ({
+      ...e,
       model: {
-        ...s.model,
-        documents: s.model.documents.map((d) =>
+        ...e.model,
+        documents: e.model.documents.map((d) =>
           d.id !== docId ? d : { ...d, decisions: { ...d.decisions, [candidateId]: { status: 'rejected', note } } },
         ),
       },
@@ -545,13 +716,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const currentPublication = state.publications[state.publications.length - 1] ?? null;
-  const currentHash = hashModel(state.model);
-  const hasUnpublishedChanges = currentHash !== state.lastPublishedModelHash;
+  const engagement = state.activeId ? (state.engagements[state.activeId] ?? null) : null;
+  const model = engagement?.model ?? blankModel();
+  const publications = engagement?.publications ?? [];
+  const submissions = engagement?.submissions ?? [];
+  const answers = engagement?.answers ?? {};
+  const mode: EngagementMode = engagement?.mode ?? 'blank';
+
+  const currentPublication = publications[publications.length - 1] ?? null;
+  const currentHash = hashModel(model);
+  const hasUnpublishedChanges = publications.length > 0 && currentHash !== (engagement?.lastPublishedModelHash ?? currentHash);
 
   const unpublishedCount = useMemo(() => {
     if (!hasUnpublishedChanges) return 0;
-    const prev = state.lastPublishedModelHash ? JSON.parse(state.lastPublishedModelHash) : null;
+    const prev = engagement?.lastPublishedModelHash ? JSON.parse(engagement.lastPublishedModelHash) : null;
     if (!prev) return 1;
     const cur = JSON.parse(currentHash);
     let n = 0;
@@ -561,10 +739,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     n += cur.d.filter((x: unknown[], i: number) => prev.d[i] && JSON.stringify(x) !== JSON.stringify(prev.d[i])).length;
     if (JSON.stringify(cur.h) !== JSON.stringify(prev.h)) n += 1;
     return Math.max(n, 1);
-  }, [hasUnpublishedChanges, currentHash, state.lastPublishedModelHash]);
+  }, [hasUnpublishedChanges, currentHash, engagement?.lastPublishedModelHash]);
 
   const value: Ctx = {
-    ...state, ready, signIn, signOut, switchRole, resetDemo,
+    ...state,
+    engagement, model, publications, submissions, answers, mode, isBlank: mode === 'blank',
+    ready, signIn, signOut, switchRole, resetDemo,
+    openEngagement, closeEngagement, createBlankEngagement, deleteEngagement, resetDemoEngagement,
+    setAnswer, suggestAnswer, resolveSuggestion, resolveConflict, addInsightDecision,
     setDimensionScore, markAiReviewed, setHumanRank, updateInitiative, moveRoadmapItem,
     updateDependency, addDependency, publish, submitFeedback, reviewSubmission,
     saveKickoff, addDocument, removeDocument, acceptCandidate, rejectCandidate, setFinancials,

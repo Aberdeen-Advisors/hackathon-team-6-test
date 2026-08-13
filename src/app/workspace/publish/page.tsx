@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
 import { JourneyRail } from '@/components/JourneyRail';
+import { BlankState } from '@/components/BlankState';
 import { Card, Button, Badge, Modal, Toast, Field, inputCls, Banner, SectionTitle, BandChip } from '@/components/ui';
 import { buildClientPayload, diffPayloads, type PublishSelection } from '@/lib/publish/buildClientPayload';
 import { THEMES } from '@/data/seed';
@@ -59,6 +60,17 @@ export default function PublishPage() {
         }
       />
       <JourneyRail />
+
+      {model.opportunities.length === 0 ? (
+        <BlankState
+          what="Nothing to publish yet"
+          whyItMatters="Publishing writes a frozen snapshot that the client portal reads. There has to be approved analysis in the engagement before there is anything to freeze."
+          action="Start with document upload" href="/workspace/sources"
+          secondary={{ label: 'Complete engagement setup', href: '/workspace/intake' }}
+          demoSection="/workspace/publish"
+        />
+      ) : (
+      <>
 
       {hasUnpublishedChanges && (
         <div className="mb-5">
@@ -237,6 +249,9 @@ export default function PublishPage() {
           </Button>
         </div>
       </Modal>
+
+      </>
+      )}
 
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>

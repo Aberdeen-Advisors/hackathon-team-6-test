@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
 import { JourneyRail } from '@/components/JourneyRail';
+import { BlankState } from '@/components/BlankState';
 import { Card, Button, Badge, Modal, Toast, Field, inputCls, SectionTitle, BandChip, EmptyState } from '@/components/ui';
 import { RoadmapTimeline, type TimelineItem } from '@/components/RoadmapTimeline';
 import { THEMES, ROADMAP, PRIORITY_MODEL, EFFORT_SCALE } from '@/data/seed';
@@ -140,6 +141,17 @@ export default function RoadmapPage() {
       />
 
       <JourneyRail />
+
+      {model.roadmapItems.length === 0 ? (
+        <BlankState
+          what="No roadmap yet"
+          whyItMatters="A roadmap needs initiatives, and initiatives need scored opportunities grouped beneath them. Once items are placed here, moving one recalculates downstream timing, surfaces dependency conflicts, and moves its investment in the financial model with it."
+          action="Build the opportunity backlog" href="/workspace/opportunities"
+          secondary={{ label: 'Answer the week 5 questions', href: '/workspace/phases' }}
+          demoSection="/workspace/roadmap"
+        />
+      ) : (
+      <>
 
       {(errors.length > 0 || warnings.length > 0) && (
         <div className="mb-4 space-y-2">
@@ -373,6 +385,9 @@ export default function RoadmapPage() {
           setToast('Dependency added and validated — scheduling recalculated.');
         }}
       />
+
+      </>
+      )}
 
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>

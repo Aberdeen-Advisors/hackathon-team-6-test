@@ -9,6 +9,26 @@ Conductor runs a technology transformation engagement as a **structured computat
 
 ---
 
+## Two ways in
+
+After signing in as an Aberdeen user you land on the **engagement selection** screen, which offers two distinct experiences over the same product.
+
+| | **Completed Demo** | **Start a New Engagement** |
+|---|---|---|
+| Answers *"what can this produce?"* | *"how would we build it from a blank page?"* |
+| Intake | 84 responses captured | Nothing — you answer them |
+| Documents | One ingested and reviewed | None |
+| Analysis | 12 capabilities, 18 scored opportunities, 8 initiatives, 6 dependencies | Empty, with guidance on each screen |
+| Roadmap | Sequenced across three waves | Empty |
+| Financials | Two initiatives costed, phasing live | Empty |
+| Published | Version 1 live in the client portal | Nothing published |
+
+Both use the same screens, the same calculation engines and the same workflow. **Demo data cannot reach a blank engagement** — the blank model is constructed from scratch by a pure factory, and that guarantee is covered by seven isolation tests. Every empty section in a blank engagement offers a link to the same section in the completed demo, which opens the demo rather than copying anything out of it.
+
+The demo can be reset, and blank engagements can be created and deleted, without affecting each other.
+
+---
+
 ## Demo credentials
 
 | Role | Email | Password |
@@ -53,22 +73,39 @@ That is the whole process. The app is fully static plus client-side state, so th
 
 ---
 
+## Intake is three layers, not one form
+
+**Layer 1 — engagement setup.** 84 questions across seven sections: client and engagement profile, transformation context, objectives and measures of success, scope and boundaries, constraints, stakeholders and governance, initial hypotheses. Every answer saves as you type, stays editable for the life of the engagement, and shows what it is **used in** downstream.
+
+**Layer 2 — documents.** Upload a Word document and the application reads it, produces partner-quality insights, and proposes answers to questions in layers 1 and 3.
+
+**Layer 3 — phase questionnaires.** One questionnaire per methodology phase (Week 0 through Weeks 10–12), 78 questions in total, prefilled from documents where the evidence supports an answer.
+
+### How a suggested answer behaves
+
+- It is marked **AI suggested from document**, with the source document, the exact excerpt, the paragraph number and a confidence value.
+- It is **never confirmed** until you accept it. Accept, edit, or reject.
+- If you edit it, **your version is authoritative** and the suggestion is kept in history.
+- A manual answer is **never silently overwritten**. If a later document contradicts it, the system raises a **conflict** showing both, and you decide.
+- Every change is kept in history with its source.
+
+---
+
 ## The demonstration path
 
-Twelve steps, roughly eight minutes. Every step changes application state — there are no placeholder actions.
+Twelve steps, roughly ten minutes. Every step changes application state — there are no placeholder actions.
 
-1. **Sign in** as `aberdeen@aberdeenadv.com`. The journey rail across the top of every workspace screen shows where the engagement stands — completion is computed from the model, never self-reported.
+1. **Sign in** as `aberdeen@aberdeenadv.com`, then choose **Start a New Engagement**. (Open the **Completed Demo** first if you want to see the destination before the journey.)
 
-2. **Kickoff** — work through the five intake steps: mandate and sponsor, objectives, scope, stakeholders, information requests. Add an objective and complete kickoff.
-   *Cause and effect:* that objective is now selectable when scoring strategic alignment on the Prioritise step.
+2. **Setup** — work through the seven intake sections. Answer a few in each; note the **Used in** link beneath every question, which shows exactly which findings, scores, roadmap items and financial calculations depend on that answer.
 
 3. **Sources** — upload a Word document. Use the included sample at `/samples/meridian-discovery-notes.docx`, or **any .docx of your own**.
 
-4. **Watch it synthesise.** The application reads the file, extracts its heading structure, and produces themes, key takeaways, watch-outs, and typed candidate findings — each anchored to the paragraph it came from, with a confidence value and the entities, metrics and currency amounts it detected. The sample yields around 27 candidates across five kinds.
+4. **Watch it process.** Five visible stages: reading, extracting structure, synthesising, analysing across the evidence, and matching to open questions. The sample produces **11 insights**, ~27 structured findings and ~14 suggested questionnaire answers.
 
-5. **Review the findings.** Every candidate states where it will land if accepted. Accept a few, reject the rest. Nothing enters the model until you accept it.
+5. **Review the insights.** Each carries nine fields — headline, what we observed, why it matters, likely root cause, roadmap implication, recommended response, evidence with paragraph citations, confidence with an explanation, and the open question that still needs validating. Each is classified as **directly evidenced**, **reasonable inference**, **consultant hypothesis**, **contradiction** or **missing information**, and you can accept, reject or reclassify any of them. Then switch to **Structured findings** and accept a few candidates.
 
-6. **See where they went:**
+6. **Go back to Setup and Phase questions.** Suggested answers are waiting, each showing its source excerpt and confidence. Accept one, edit another, reject a third. Then **see where accepted findings went:**
    - an **objective** → Kickoff objectives, and the alignment scoring picker
    - an **opportunity** → the backlog, deliberately unscored, reading *"Not yet scored"*
    - a **prerequisite** → a **proposed** dependency that does not constrain the schedule until validated
@@ -95,6 +132,10 @@ Twelve steps, roughly eight minutes. Every step changes application state — th
 ## What is architecturally real
 
 Five things in this prototype are built the way the production system should be, and would survive a swap from local storage to a database:
+
+**A blank engagement is genuinely blank.** `src/lib/store/factories.ts` builds an empty model from scratch. Seven tests assert that it shares no object identity with the demonstration seed, contains none of the demo answers, and does not mention the demo client anywhere. Every mutation in the store is scoped to the active engagement, so there is no code path that can write to one while another is open.
+
+**The insight engine looks across the evidence, not at one sentence at a time.** `src/lib/insights/engine.ts` runs nine analytical patterns — ambition against capability, key-person concentration, foundation concentration, deferred decisions, investment against scale, capacity against ambition, contradiction, strength as accelerator, and evidence gap. Each pattern supplies the analytical *shape*; the document supplies every specific. **A pattern that cannot find its specifics does not fire**, which is what keeps the output from degenerating into "the organisation should improve governance."
 
 **Document synthesis reads the actual file.** `src/lib/ingest/` parses a real `.docx` client-side with mammoth, preserving heading and list structure rather than flattening to text. `synthesise.ts` is a pure, tested extraction engine: it scores every sentence against signal lexicons for objectives, capability gaps, prerequisites, financial figures and risks; extracts named entities, metrics and currency amounts (normalising `$2.4m` to `2400000`); clusters paragraphs into topics; and returns typed candidates anchored to their source paragraph with a confidence value. **Different documents produce different output** — it is not a scripted response. It is rule-based rather than model-based; the specification (PRD section 14, AI-02) replaces it with an LLM returning the same schema under the same human-review gate.
 
@@ -125,7 +166,7 @@ Five things in this prototype are built the way the production system should be,
 
 Tests cover every band and quadrant boundary — exactly 4.50, 3.75, 2.80 and 3.5 on each axis — plus the case where a score of 3.749 displays as 3.75 but must band as Medium. The financial suite proves that phasing follows the roadmap and that an unestimated initiative contributes `null`, never zero. The synthesis suite proves that extraction responds to the document rather than a script.
 
-**79 tests across three suites.** Run them with `npm run test`.
+**78 tests across five suites.** Run them with `npm run test`.
 
 ---
 
@@ -135,8 +176,10 @@ Tests cover every band and quadrant boundary — exactly 4.50, 3.75, 2.80 and 3.
 src/
 ├─ app/
 │  ├─ login/                  Sign-in
-│  ├─ workspace/              Aberdeen: overview · kickoff · sources · opportunities
-│  │                          · current state · roadmap · financials · publish · feedback
+│  ├─ engagements/           Engagement selection — completed demo or new blank
+│  ├─ workspace/              Aberdeen: overview · setup · sources · phase questions
+│  │                          · opportunities · current state · roadmap · financials
+│  │                          · publish · feedback
 │  └─ portal/                 Client: overview · current state · roadmap · investment · feedback
 ├─ components/
 │  ├─ ui.tsx                  Design system — Aberdeen brand primitives
@@ -148,10 +191,14 @@ src/
 │  └─ RoadmapTimeline.tsx     Waves, lanes, dependencies, drag-to-reschedule
 ├─ lib/
 │  ├─ calc/                   Pure deterministic engines (priority + financial) + tests
-│  ├─ ingest/                 .docx parsing and the synthesis engine + tests
-│  ├─ store/                  React context, localStorage persistence
+│  ├─ ingest/                 .docx parsing, synthesis and questionnaire prefill + tests
+│  ├─ insights/               Partner-quality cross-document insight patterns
+│  ├─ store/                  Multi-engagement context, factories + isolation tests
 │  └─ publish/                Whitelist serialiser + publication diff
-├─ data/seed.ts               Seeded engagement (fictional client)
+├─ data/
+│  ├─ methodology.ts          Client-neutral templates — 84 intake + 78 phase questions
+│  ├─ seed.ts                 Demonstration engagement (fictional client)
+│  └─ demoAnswers.ts          Completed intake responses for the demonstration
 └─ public/samples/            Sample .docx for the ingestion demonstration
 ```
 
@@ -182,7 +229,9 @@ This is a prototype built to demonstrate the workflow and the interface. It is *
 - **Word (.docx) ingestion is fully functional.** PowerPoint, Excel and PDF are **not** implemented and are deliberately not offered as upload controls — they are listed on the Sources screen as future capabilities, with no button that does nothing.
 - **Document synthesis is rule-based, not model-based.** It genuinely reads the uploaded file and responds to its content, but it uses signal lexicons and pattern extraction rather than an LLM. The specification replaces it with an LLM returning the same schema.
 - **AI scoring proposals are mocked** — realistic latency, real review flow, pre-written proposals for three opportunities.
-- **Not built:** Board deck generator, PPTX/XLSX export, scenario modelling, audit log, analytical versioning, resource capacity modelling, multi-engagement routing.
+- **Insight generation is pattern-based, not model-based.** Nine analytical patterns fire against the evidence. They produce specific, decision-oriented output because the document supplies every noun and number — but they are not reasoning, and they will not find a pattern nobody encoded. The specification replaces them with an LLM returning the same nine-field schema under the same review gate.
+- **Client users see one engagement.** The portal opens the most recently published engagement rather than offering a chooser.
+- **Not built:** Board deck generator, PPTX/XLSX export, scenario modelling, audit log UI, analytical versioning, resource capacity modelling.
 - **Tests cover the calculation engine only.**
 - The seeded client, **Meridian Supply Group**, is fictional. No real client data is present in this repository.
 

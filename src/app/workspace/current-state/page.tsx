@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useStore } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
 import { JourneyRail } from '@/components/JourneyRail';
+import { BlankState } from '@/components/BlankState';
 import { Card, Badge, CalcValue, SidePanel, SectionTitle } from '@/components/ui';
 import { TECHNOLOGY_FUNCTIONS, MATURITY_FRAMEWORK, EVIDENCE } from '@/data/seed';
 import { maturityGap, maturityLabel } from '@/lib/calc';
@@ -24,6 +25,15 @@ export default function CurrentStatePage() {
 
       <JourneyRail />
 
+      {model.capabilities.length === 0 ? (
+        <BlankState
+          what="No capabilities assessed"
+          whyItMatters="The maturity assessment is where the diagnosis lives. Each capability carries a current level, a deliberate target, and the calculated gap between them — and those gaps are what generate opportunities. The CMMI level definitions are already loaded; the capabilities themselves are yours to define."
+          action="Answer the phase 3–4 questions" href="/workspace/phases"
+          secondary={{ label: 'Upload source material', href: '/workspace/sources' }}
+          demoSection="/workspace/current-state"
+        />
+      ) : (
       <div className="space-y-5">
         {TECHNOLOGY_FUNCTIONS.map((fn) => {
           const caps = model.capabilities.filter((c) => c.functionId === fn.id);
@@ -88,9 +98,13 @@ export default function CurrentStatePage() {
         })}
       </div>
 
-      <p className="text-2xs text-onyx-60 mt-5 leading-relaxed max-w-4xl border-l-2 border-verdigris pl-3">
-        {MATURITY_FRAMEWORK.disclaimer}
-      </p>
+      )}
+
+      {model.capabilities.length > 0 && (
+        <p className="text-2xs text-onyx-60 mt-5 leading-relaxed max-w-4xl border-l-2 border-verdigris pl-3">
+          {MATURITY_FRAMEWORK.disclaimer}
+        </p>
+      )}
 
       <SidePanel open={!!cap} onClose={() => setOpen(null)} title={cap?.name ?? ''}
         subtitle={cap ? TECHNOLOGY_FUNCTIONS.find((f) => f.id === cap.functionId)?.name : ''}>

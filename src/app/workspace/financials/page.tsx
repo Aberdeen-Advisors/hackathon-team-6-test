@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
 import { JourneyRail } from '@/components/JourneyRail';
+import { BlankState } from '@/components/BlankState';
 import {
   Card, Button, Badge, StatCard, Modal, Toast, Field, inputCls, Banner, SectionTitle, EmptyState,
 } from '@/components/ui';
@@ -87,11 +88,18 @@ export default function FinancialsPage() {
       />
       <JourneyRail />
 
-      {totals.coverage.estimated === 0 ? (
+      {model.initiatives.length === 0 ? (
+        <BlankState
+          what="No initiatives to cost"
+          whyItMatters="The financial model is phased from the roadmap, so it needs initiatives with timing before it can produce anything. Build the backlog first; the money follows the sequence."
+          action="Build the opportunity backlog" href="/workspace/opportunities"
+          demoSection="/workspace/financials"
+        />
+      ) : totals.coverage.estimated === 0 ? (
         <Card>
           <EmptyState
             title="No financial estimates yet"
-            body={`None of the ${totals.coverage.total} initiatives has an estimate. Add one to begin building the investment profile — or accept a financial figure from an uploaded document on the Sources screen.`}
+            body={`None of the ${totals.coverage.total} initiatives has an estimate. Nothing here is zero — it is simply unknown. Add an estimate to begin building the investment profile, or accept a financial figure from an uploaded document on the Sources screen.`}
             action={<Button variant="primary" size="sm" onClick={() => setEditing(model.initiatives[0]?.id ?? null)}>Add the first estimate</Button>}
           />
         </Card>

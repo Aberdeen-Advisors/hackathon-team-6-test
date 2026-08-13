@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
 import { JourneyRail } from '@/components/JourneyRail';
+import { BlankState } from '@/components/BlankState';
 import {
   Card, Button, BandChip, QuadrantChip, CalcValue, SidePanel, Modal, Badge, Toast, Field, inputCls, SectionTitle,
 } from '@/components/ui';
@@ -103,6 +104,16 @@ export default function OpportunitiesPage() {
 
       <JourneyRail />
 
+      {model.opportunities.length === 0 ? (
+        <BlankState
+          what="No opportunities in the backlog"
+          whyItMatters="The opportunity is the unit of prioritisation — every score, every initiative rollup and every roadmap item derives from it. Opportunities come from capability gaps, from findings, or from a document you upload and accept."
+          action="Upload a document" href="/workspace/sources"
+          secondary={{ label: 'Assess capabilities first', href: '/workspace/current-state' }}
+          demoSection="/workspace/opportunities"
+        />
+      ) : (
+      <>
       <div className="flex flex-wrap gap-1.5 mb-4">
         {([
           ['all', 'All'], ['unscored', 'Missing scores'], ['ai', 'AI suggested'],
@@ -435,6 +446,9 @@ export default function OpportunitiesPage() {
         onAccept={(oppId, dimKey, level, rationale) => setDimensionScore(oppId, dimKey, level, rationale, 'ai')}
         onDone={(n) => { if (aiFor) markAiReviewed(aiFor); setToast(`${n} AI-proposed score${n === 1 ? '' : 's'} accepted and recalculated.`); }}
       />
+
+      </>
+      )}
 
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>

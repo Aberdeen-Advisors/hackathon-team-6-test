@@ -1,6 +1,7 @@
 import type { Opportunity, Level } from '@/data/seed';
 import type { DocStructure, Synthesis, Candidate, CandidateKind } from '@/lib/ingest/synthesise';
 import type { Financials } from '@/lib/calc/financials';
+import type { Insight } from '@/lib/insights/engine';
 
 export type Role = 'aberdeen' | 'client';
 
@@ -72,10 +73,41 @@ export interface IngestedDocument {
   docType: string;
   structure: DocStructure;
   synthesis: Synthesis;
+  insights: Insight[];
+  /** decisions on synthesis candidates */
   decisions: Record<string, { status: 'accepted' | 'rejected'; note?: string; landedAs?: string }>;
+  /** decisions on partner-quality insights */
+  insightDecisions: Record<string, { status: 'accepted' | 'rejected' | 'reclassified'; note?: string; newClass?: string }>;
 }
 
-export type { Candidate, CandidateKind, Financials, DocStructure, Synthesis };
+/** A questionnaire answer, with provenance and full history. */
+export interface Answer {
+  questionId: string;
+  value: string | string[];
+  source: 'manual' | 'ai_accepted';
+  updatedAt: string;
+  updatedBy: string;
+  suggestion?: {
+    value: string;
+    documentId: string;
+    documentName: string;
+    excerpt: string;
+    paragraphIndex: number;
+    confidence: number;
+    status: 'pending' | 'accepted' | 'rejected' | 'edited';
+  };
+  /** Raised when a later document contradicts a confirmed answer. Never overwrites. */
+  conflict?: {
+    documentId: string;
+    documentName: string;
+    excerpt: string;
+    suggestedValue: string;
+    raisedAt: string;
+  };
+  history: { value: string | string[]; source: string; at: string; by: string }[];
+}
+
+export type { Candidate, CandidateKind, Financials, DocStructure, Synthesis, Insight };
 
 export interface Model {
   capabilities: Capability[];
@@ -172,12 +204,26 @@ export interface ClientPayload {
   horizonQuarters: number;
 }
 
-export interface AppState {
-  session: Session | null;
+export type EngagementMode = 'demo' | 'blank';
+
+export interface Engagement {
+  id: string;
+  mode: EngagementMode;
+  label: string;
+  clientName: string;
+  createdAt: string;
+  createdBy: string;
+  answers: Record<string, Answer>;
   model: Model;
   publications: Publication[];
   submissions: Submission[];
   lastPublishedModelHash: string;
+}
+
+export interface AppState {
+  session: Session | null;
+  engagements: Record<string, Engagement>;
+  activeId: string | null;
 }
 
 export type { Level };

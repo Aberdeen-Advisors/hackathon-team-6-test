@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (ready && session) router.replace(session.role === 'aberdeen' ? '/workspace' : '/portal');
+    if (ready && session) router.replace(session.role === 'aberdeen' ? '/engagements' : '/portal');
   }, [ready, session, router]);
 
   function submit(e: React.FormEvent) {
@@ -30,7 +30,7 @@ export default function LoginPage() {
       return;
     }
     const acct = DEMO_ACCOUNTS.find((a) => a.email.toLowerCase() === email.trim().toLowerCase());
-    router.replace(acct?.role === 'aberdeen' ? '/workspace' : '/portal');
+    router.replace(acct?.role === 'aberdeen' ? '/engagements' : '/portal');
   }
 
   return (

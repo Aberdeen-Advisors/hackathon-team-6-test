@@ -13,7 +13,8 @@ export interface NavItem { href: string; label: string; badge?: number }
 export function Shell({
   nav, children, variant,
 }: { nav: NavItem[]; children: React.ReactNode; variant: 'workspace' | 'portal' }) {
-  const { session, ready, signOut, switchRole, resetDemo, currentPublication, hasUnpublishedChanges, unpublishedCount, submissions } = useStore();
+  const { session, ready, signOut, switchRole, resetDemo, currentPublication, hasUnpublishedChanges,
+    unpublishedCount, submissions, engagement, mode, closeEngagement } = useStore();
   const pathname = usePathname();
   const router = useRouter();
   const [menu, setMenu] = useState(false);
@@ -22,8 +23,10 @@ export function Shell({
   useEffect(() => {
     if (!ready) return;
     if (!session) { router.replace('/login'); return; }
-    if (variant === 'workspace' && session.role !== 'aberdeen') router.replace('/portal');
-  }, [ready, session, variant, router]);
+    if (variant === 'workspace' && session.role !== 'aberdeen') { router.replace('/portal'); return; }
+    // A workspace route with no engagement open has nothing to show.
+    if (variant === 'workspace' && !engagement) router.replace('/engagements');
+  }, [ready, session, variant, router, engagement]);
 
   if (!ready || !session) {
     return (
@@ -49,9 +52,18 @@ export function Shell({
           <span className="h-5 w-px bg-white/25" />
 
           <div className="min-w-0 flex items-center gap-2.5 text-[13px]">
-            <span className="text-white font-medium truncate">{ENGAGEMENT.clientName}</span>
+            <span className="text-white font-medium truncate">{engagement?.clientName ?? ENGAGEMENT.clientName}</span>
             <span className="text-white/45">·</span>
-            <span className="text-white/75 truncate hidden md:inline">{ENGAGEMENT.name}</span>
+            <span className="text-white/75 truncate hidden md:inline">
+              {engagement ? engagement.label.replace(`${engagement.clientName} — `, '') : ENGAGEMENT.name}
+            </span>
+            {engagement && (
+              <span className={`shrink-0 rounded-sm px-1.5 py-0.5 text-2xs ${
+                mode === 'demo' ? 'bg-verdigris text-aberdeen' : 'bg-white/15 text-white border border-white/25'
+              }`}>
+                {mode === 'demo' ? 'Completed demo' : 'New engagement'}
+              </span>
+            )}
           </div>
 
           <div className="ml-auto flex items-center gap-2.5">
@@ -94,6 +106,12 @@ export function Shell({
                     <div className="px-3 py-2 border-b border-onyx-10">
                       <div className="text-2xs uppercase tracking-wide text-onyx-40 mb-1.5">Demo controls</div>
                       <button
+                        onClick={() => { closeEngagement(); setMenu(false); router.push('/engagements'); }}
+                        className="w-full text-left text-[13px] px-2 py-1.5 rounded hover:bg-aberdeen-50"
+                      >
+                        Switch engagement
+                      </button>
+                      <button
                         onClick={() => { const to = session.role === 'aberdeen' ? 'client' : 'aberdeen'; switchRole(to); setMenu(false); router.push(to === 'aberdeen' ? '/workspace' : '/portal'); }}
                         className="w-full text-left text-[13px] px-2 py-1.5 rounded hover:bg-aberdeen-50"
                       >
@@ -103,7 +121,7 @@ export function Shell({
                         onClick={() => { if (confirm('Reset all demo data to its seeded state?')) { resetDemo(); setMenu(false); router.push('/login'); } }}
                         className="w-full text-left text-[13px] px-2 py-1.5 rounded hover:bg-aberdeen-50"
                       >
-                        Reset demo data
+                        Reset all data
                       </button>
                     </div>
                     <button
@@ -125,7 +143,7 @@ export function Shell({
         <div className="bg-gold-tint border-b border-gold/50 px-5 py-2 flex items-center justify-between gap-4">
           <span className="text-[13px] text-onyx">
             <strong className="font-medium">Previewing the client experience.</strong>{' '}
-            You are signed in as Aberdeen — this is exactly what {ENGAGEMENT.clientName} sees.
+            You are signed in as Aberdeen — this is exactly what {engagement?.clientName ?? 'the client'} sees.
           </span>
           <Button size="sm" onClick={() => router.push('/workspace')}>Back to workspace</Button>
         </div>
