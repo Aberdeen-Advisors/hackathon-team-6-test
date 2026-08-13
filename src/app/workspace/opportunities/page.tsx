@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
+import { JourneyRail } from '@/components/JourneyRail';
 import {
   Card, Button, BandChip, QuadrantChip, CalcValue, SidePanel, Modal, Badge, Toast, Field, inputCls, SectionTitle,
 } from '@/components/ui';
@@ -99,6 +100,8 @@ export default function OpportunitiesPage() {
           </div>
         }
       />
+
+      <JourneyRail />
 
       <div className="flex flex-wrap gap-1.5 mb-4">
         {([

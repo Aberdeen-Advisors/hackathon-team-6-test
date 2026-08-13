@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useStore } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
+import { JourneyRail } from '@/components/JourneyRail';
 import { Card, Badge, CalcValue, SidePanel, SectionTitle } from '@/components/ui';
 import { TECHNOLOGY_FUNCTIONS, MATURITY_FRAMEWORK, EVIDENCE } from '@/data/seed';
 import { maturityGap, maturityLabel } from '@/lib/calc';
@@ -20,6 +21,8 @@ export default function CurrentStatePage() {
         title="Current state"
         subtitle={`${MATURITY_FRAMEWORK.name} · ${MATURITY_FRAMEWORK.evaluationMethod} · ${MATURITY_FRAMEWORK.calibration}. Current and target are consultant judgments; the gap and the level label are calculated.`}
       />
+
+      <JourneyRail />
 
       <div className="space-y-5">
         {TECHNOLOGY_FUNCTIONS.map((fn) => {

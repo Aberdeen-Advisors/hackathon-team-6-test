@@ -9,6 +9,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         { href: '/portal', label: 'Overview' },
         { href: '/portal/current-state', label: 'Current State' },
         { href: '/portal/roadmap', label: 'Roadmap' },
+        { href: '/portal/investment', label: 'Investment' },
         { href: '/portal/feedback', label: 'My Feedback' },
       ]}
     >

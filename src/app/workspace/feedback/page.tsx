@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
+import { JourneyRail } from '@/components/JourneyRail';
 import { Card, Button, Badge, Modal, Toast, Field, inputCls, EmptyState, SectionTitle } from '@/components/ui';
 import { denseRank } from '@/lib/calc';
 
@@ -107,6 +108,7 @@ export default function FeedbackPage() {
           </div>
         }
       />
+      <JourneyRail />
 
       {rows.length === 0 ? (
         <Card>

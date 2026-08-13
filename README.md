@@ -55,26 +55,50 @@ That is the whole process. The app is fully static plus client-side state, so th
 
 ## The demonstration path
 
-Ten steps, roughly five minutes.
+Twelve steps, roughly eight minutes. Every step changes application state — there are no placeholder actions.
 
-1. Sign in as **aberdeen@aberdeenadv.com**.
-2. **Overview** — engagement mandate, phase, theme rollups, publication history. Every figure carries its denominator.
-3. **Opportunities** — click any D1/D2/D3 cell. The anchor picker offers five *written* anchors, not a number field. Choose one, add a rationale, save. The weighted score, priority band, quadrant and theme average all move at once.
-   - Open **OPP-014**. It is missing one dimension, so it reads *"Not yet scored — 2 of 3 dimensions complete"*. It never shows a partial number.
-   - Use **Propose scores with AI** to see the model suggest a level and anchor with cited evidence and a confidence value, for a consultant to accept, edit or reject.
-4. **Roadmap** — drag **ERP Programme Sequencing** into Wave 1. Two hard prerequisites point at it, so two violations appear in red and an impact panel names every affected initiative and wave.
-5. **Publish** — select content, use **Preview as client** (rendered through the same serialiser that produces the snapshot), add a note, publish version 2.
-6. Switch to the **client** account. The portal shows only what was published — unpublished items are absent entirely, not hidden.
-7. **Feedback** — submit a top-five ranking, a dependency suggestion, a comment, and timing feedback on a roadmap item.
-8. Switch back to Aberdeen. **Client Feedback** lists all four as pending, with the client's ranking shown against the computed ranking.
-9. Accept two and reject two, each with a note. Accepting **applies** the change to the model; rejecting leaves it untouched. The header shows unpublished changes.
-10. **Publish** again. The client sees version 3, your note, and a plain-language summary of what changed.
+1. **Sign in** as `aberdeen@aberdeenadv.com`. The journey rail across the top of every workspace screen shows where the engagement stands — completion is computed from the model, never self-reported.
+
+2. **Kickoff** — work through the five intake steps: mandate and sponsor, objectives, scope, stakeholders, information requests. Add an objective and complete kickoff.
+   *Cause and effect:* that objective is now selectable when scoring strategic alignment on the Prioritise step.
+
+3. **Sources** — upload a Word document. Use the included sample at `/samples/meridian-discovery-notes.docx`, or **any .docx of your own**.
+
+4. **Watch it synthesise.** The application reads the file, extracts its heading structure, and produces themes, key takeaways, watch-outs, and typed candidate findings — each anchored to the paragraph it came from, with a confidence value and the entities, metrics and currency amounts it detected. The sample yields around 27 candidates across five kinds.
+
+5. **Review the findings.** Every candidate states where it will land if accepted. Accept a few, reject the rest. Nothing enters the model until you accept it.
+
+6. **See where they went:**
+   - an **objective** → Kickoff objectives, and the alignment scoring picker
+   - an **opportunity** → the backlog, deliberately unscored, reading *"Not yet scored"*
+   - a **prerequisite** → a **proposed** dependency that does not constrain the schedule until validated
+   - a **financial figure** → the cost line you chose, on the initiative you chose
+   - a **risk** → the risk register, visible on the Roadmap and in the client's executive view once published
+
+7. **Opportunities** — click any D1/D2/D3 cell. The anchor picker offers five *written* anchors, not a number field. Score the opportunity you just created. The weighted score, band, quadrant, theme average and rank all move at once.
+   - **OPP-014** is missing one dimension and reads *"Not yet scored — 2 of 3 dimensions complete"*. It never shows a partial number.
+   - **Propose scores with AI** suggests a level and anchor with cited evidence and a confidence value, to accept, edit or reject.
+
+8. **Roadmap** — drag **ERP Programme Sequencing** into Wave 1. Two hard prerequisites point at it, so two violations appear in red and an impact panel names every affected initiative and wave. Validate the proposed dependency you accepted in step 6 and watch the schedule respond.
+
+9. **Financials** — open an initiative and enter assumptions. Totals, phasing, every chart and the coverage indicator update together.
+   *Cause and effect:* go back to the Roadmap, move a costed initiative to a different wave, then return. **Its investment and benefits have moved with it** — the money follows the roadmap, because both read the same model.
+
+10. **Publish** — select content (including risks and the financial summary), use **Preview as client**, add a note, publish.
+
+11. Switch to the **client** account. The portal shows only what was published. Submit a top-five ranking, a dependency suggestion, a comment, and timing feedback.
+
+12. Switch back. **Client Feedback** lists all four, with the client's ranking beside the computed ranking. Accept two and reject two, each with a note — accepting **applies** the change to the model. **Publish** again; the client sees the new version and a plain-language summary of what changed.
 
 ---
 
 ## What is architecturally real
 
-Three things in this prototype are built the way the production system should be, and would survive a swap from local storage to a database:
+Five things in this prototype are built the way the production system should be, and would survive a swap from local storage to a database:
+
+**Document synthesis reads the actual file.** `src/lib/ingest/` parses a real `.docx` client-side with mammoth, preserving heading and list structure rather than flattening to text. `synthesise.ts` is a pure, tested extraction engine: it scores every sentence against signal lexicons for objectives, capability gaps, prerequisites, financial figures and risks; extracts named entities, metrics and currency amounts (normalising `$2.4m` to `2400000`); clusters paragraphs into topics; and returns typed candidates anchored to their source paragraph with a confidence value. **Different documents produce different output** — it is not a scripted response. It is rule-based rather than model-based; the specification (PRD section 14, AI-02) replaces it with an LLM returning the same schema under the same human-review gate.
+
+**The financial model is phased from the roadmap.** `src/lib/calc/financials.ts` spreads capital across an initiative's delivery quarters, starts recurring cost at go-live, and starts benefits after go-live plus a stated lag — all derived from that initiative's position on the roadmap. Move it to a different wave and the money moves with it. This is covered by an explicit test.
 
 **Calculations are pure and central.** Every formula lives once, in `src/lib/calc/`, with no React, no store and no I/O. Each function returns `{ value, inputs, formulaString, formulaWithValues }` so the interface can explain itself. If any contributing input is missing the result is `null` — never a partial sum. A spreadsheet treats a blank as zero and silently produces a confidently wrong priority band; this engine refuses to.
 
@@ -95,8 +119,13 @@ Three things in this prototype are built the way the production system should be
 | `detectConflicts` | `DEP_VIOLATION` (error), `SOFT_DEP_WARNING`, `UNSIZED`, `UNSCORED` |
 | `initiativeRollup` | Mean of scored children, always with its denominator |
 | `denseRank` | Dense ranking with shared ranks on ties |
+| `initiativeTotals` | Capital lines plus contingency, low/base/high, internal against external |
+| `phaseInitiative` | Quarter-by-quarter cost and benefit, phased from the roadmap position |
+| `portfolioTotals` | Portfolio aggregation with coverage, partial-total flag and named gaps |
 
-Tests cover every band and quadrant boundary — exactly 4.50, 3.75, 2.80 and 3.5 on each axis — plus the case where a score of 3.749 displays as 3.75 but must band as Medium.
+Tests cover every band and quadrant boundary — exactly 4.50, 3.75, 2.80 and 3.5 on each axis — plus the case where a score of 3.749 displays as 3.75 but must band as Medium. The financial suite proves that phasing follows the roadmap and that an unestimated initiative contributes `null`, never zero. The synthesis suite proves that extraction responds to the document rather than a script.
+
+**79 tests across three suites.** Run them with `npm run test`.
 
 ---
 
@@ -106,20 +135,24 @@ Tests cover every band and quadrant boundary — exactly 4.50, 3.75, 2.80 and 3.
 src/
 ├─ app/
 │  ├─ login/                  Sign-in
-│  ├─ workspace/              Aberdeen: overview · opportunities · current state
-│  │                          · roadmap · publish · client feedback
-│  └─ portal/                 Client: overview · current state · roadmap · feedback
+│  ├─ workspace/              Aberdeen: overview · kickoff · sources · opportunities
+│  │                          · current state · roadmap · financials · publish · feedback
+│  └─ portal/                 Client: overview · current state · roadmap · investment · feedback
 ├─ components/
 │  ├─ ui.tsx                  Design system — Aberdeen brand primitives
 │  ├─ Shell.tsx               Header, navigation, route guards
+│  ├─ JourneyRail.tsx         Guided engagement journey, completion computed from the model
 │  ├─ AnchorPicker.tsx        Anchored 1–5 scoring
 │  ├─ QuadrantChart.tsx       Business value against urgency
+│  ├─ Charts.tsx              Executive SVG charts — bars, curves, ranges, donuts, scatter
 │  └─ RoadmapTimeline.tsx     Waves, lanes, dependencies, drag-to-reschedule
 ├─ lib/
-│  ├─ calc/                   Pure deterministic engine + tests
+│  ├─ calc/                   Pure deterministic engines (priority + financial) + tests
+│  ├─ ingest/                 .docx parsing and the synthesis engine + tests
 │  ├─ store/                  React context, localStorage persistence
 │  └─ publish/                Whitelist serialiser + publication diff
-└─ data/seed.ts               Seeded engagement (fictional client)
+├─ data/seed.ts               Seeded engagement (fictional client)
+└─ public/samples/            Sample .docx for the ingestion demonstration
 ```
 
 **Stack:** Next.js (App Router) · TypeScript · Tailwind · Vitest. No database, no ORM, no auth library, no state library.
@@ -146,15 +179,16 @@ This is a prototype built to demonstrate the workflow and the interface. It is *
 
 - **No backend, no database, no real authentication.** The sign-in screen is a demonstration gate. Credentials are plain constants in `src/data/seed.ts`. Real authorisation is server-side in the specification.
 - **State is per-browser `localStorage`.** The Aberdeen and client views must be demonstrated **on the same browser**. It is not multi-user or multi-device — a colleague opening the portal on their own laptop will not see your submissions.
-- **No file upload or document parsing.** All data is seeded. The specification covers ingestion of PPTX, XLSX, PDF and DOCX with structure preserved to the cell and slide.
+- **Word (.docx) ingestion is fully functional.** PowerPoint, Excel and PDF are **not** implemented and are deliberately not offered as upload controls — they are listed on the Sources screen as future capabilities, with no button that does nothing.
+- **Document synthesis is rule-based, not model-based.** It genuinely reads the uploaded file and responds to its content, but it uses signal lexicons and pattern extraction rather than an LLM. The specification replaces it with an LLM returning the same schema.
 - **AI scoring proposals are mocked** — realistic latency, real review flow, pre-written proposals for three opportunities.
-- **Not built:** Board deck generator, PPTX/XLSX export, scenario modelling, audit log, analytical versioning, evidence review queue, multi-engagement routing, cost and capacity modelling.
+- **Not built:** Board deck generator, PPTX/XLSX export, scenario modelling, audit log, analytical versioning, resource capacity modelling, multi-engagement routing.
 - **Tests cover the calculation engine only.**
 - The seeded client, **Meridian Supply Group**, is fictional. No real client data is present in this repository.
 
 ### What the specification covers that this does not
 
-The full product requirements are in `docs/PRD.md` — 40 sections covering the canonical data model, the AI capability register, the complete calculation engine, change propagation rules, the Board deck generator, and the deployment and testing strategy. This prototype implements roughly the first eighth of it, chosen so that the parts most worth proving are the parts that are real.
+The full product requirements are in `docs/PRD.md` — 40 sections covering the canonical data model, the AI capability register, the complete calculation engine, change propagation rules, the Board deck generator, and the deployment and testing strategy. This prototype implements a working slice of it, chosen so that the parts most worth proving — the calculation engines, the document-to-model flow, the publishing boundary and the feedback loop — are the parts that are real.
 
 ---
 

@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
+import { JourneyRail } from '@/components/JourneyRail';
 import { Card, Button, Badge, Modal, Toast, Field, inputCls, Banner, SectionTitle, BandChip } from '@/components/ui';
 import { buildClientPayload, diffPayloads, type PublishSelection } from '@/lib/publish/buildClientPayload';
 import { THEMES } from '@/data/seed';
@@ -21,6 +22,8 @@ export default function PublishPage() {
   const [caps, setCaps] = useState(true);
   const [roadmap, setRoadmap] = useState(true);
   const [deps, setDeps] = useState(true);
+  const [risks, setRisks] = useState(true);
+  const [fins, setFins] = useState(true);
   const [note, setNote] = useState('');
   const [preview, setPreview] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -31,8 +34,10 @@ export default function PublishPage() {
     includeCapabilities: caps,
     includeRoadmap: roadmap,
     includeDependencies: deps,
+    includeRisks: risks,
+    includeFinancials: fins,
   };
-  const payload = useMemo(() => buildClientPayload(model, selection), [model, selected, caps, roadmap, deps]);
+  const payload = useMemo(() => buildClientPayload(model, selection), [model, selected, caps, roadmap, deps, risks, fins]);
   const changes = diffPayloads(currentPublication?.snapshot ?? null, payload);
 
   function toggle(id: string) {
@@ -53,6 +58,7 @@ export default function PublishPage() {
           </>
         }
       />
+      <JourneyRail />
 
       {hasUnpublishedChanges && (
         <div className="mb-5">
@@ -110,6 +116,8 @@ export default function PublishPage() {
               [caps, setCaps, 'Current-state maturity assessment', `${model.capabilities.length} capabilities, with the framework disclaimer`],
               [roadmap, setRoadmap, 'Roadmap and waves', 'Timing for published initiatives only'],
               [deps, setDeps, 'Validated dependencies', 'Proposed dependencies are never published'],
+              [risks, setRisks, 'Risk register', `${model.risks.length} risk${model.risks.length === 1 ? '' : 's'} — narrative only, source references withheld`],
+              [fins, setFins, 'Financial summary', 'Portfolio totals and phasing only — never the per-line internal estimates'],
             ] as [boolean, (v: boolean) => void, string, string][]).map(([v, set, label, hint]) => (
               <label key={label} className="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" checked={v} onChange={(e) => set(e.target.checked)} className="accent-[#44B0B1] mt-0.5" />
@@ -130,6 +138,8 @@ export default function PublishPage() {
                 ['Capabilities', payload.capabilities.length],
                 ['Roadmap items', payload.roadmapItems.length],
                 ['Dependencies', payload.dependencies.length],
+                ['Risks', payload.risks.length],
+                ['Financial summary', payload.financials ? 'included' : 'not estimated'],
               ].map(([k, v]) => (
                 <div key={k as string} className="flex justify-between border-b border-onyx-10 pb-1.5">
                   <dt className="text-onyx-60">{k}</dt><dd className="tabular-nums text-aberdeen font-medium">{v}</dd>

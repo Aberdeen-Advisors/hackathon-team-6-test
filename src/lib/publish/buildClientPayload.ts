@@ -14,7 +14,8 @@
  */
 import type { Model, ClientPayload } from '@/lib/store/types';
 import { THEMES, ROADMAP, TECHNOLOGY_FUNCTIONS, MATURITY_FRAMEWORK, ENGAGEMENT } from '@/data/seed';
-import { weightedScore, priorityBand, maturityGap, maturityLabel, durationQuarters } from '@/lib/calc';
+import { weightedScore, priorityBand, maturityGap, maturityLabel, durationQuarters, periodToIndex } from '@/lib/calc';
+import { phaseInitiative, sumSeries, portfolioTotals, toYears, initiativeTotals } from '@/lib/calc/financials';
 import { DIMENSIONS, PRIORITY_MODEL, EFFORT_SCALE } from '@/data/seed';
 
 export interface PublishSelection {
@@ -22,6 +23,8 @@ export interface PublishSelection {
   includeCapabilities: boolean;
   includeRoadmap: boolean;
   includeDependencies: boolean;
+  includeRisks: boolean;
+  includeFinancials: boolean;
 }
 
 export function buildClientPayload(model: Model, selection: PublishSelection): ClientPayload {
@@ -107,8 +110,58 @@ export function buildClientPayload(model: Model, selection: PublishSelection): C
         }))
     : [];
 
+  /* ---- risks: published with their narrative, never their internal source reference ---- */
+  const risks = selection.includeRisks
+    ? model.risks.map((r) => ({
+        id: r.id, title: r.title, detail: r.detail, severity: r.severity,
+        initiativeName: r.initiativeId ? model.initiatives.find((i) => i.id === r.initiativeId)?.name : undefined,
+      }))
+    : [];
+
+  /* ---- financials: summary only. Per-line internal estimates are never published. ---- */
+  let financials: ClientPayload['financials'] = null;
+  if (selection.includeFinancials) {
+    const ids = [...publishedInitiativeIds];
+    const totals = portfolioTotals(ids, model.financials);
+    if (totals.investmentBase !== null) {
+      const horizon = ROADMAP.horizonQuarters;
+      const series = sumSeries(
+        ids.map((id) => {
+          const item = model.roadmapItems.find((r) => r.initiativeId === id);
+          const ini = model.initiatives.find((i) => i.id === id);
+          return phaseInitiative(
+            model.financials[id],
+            item ? periodToIndex(item.startPeriod, ROADMAP.startPeriod) : 0,
+            durationQuarters(ini?.tshirtSize ?? null, EFFORT_SCALE).value,
+            horizon,
+          );
+        }),
+        horizon,
+      );
+      const startYear = Number(ROADMAP.startPeriod.split('-Q')[0]);
+      const costYears = toYears(series.cost, startYear);
+      const benefitYears = toYears(series.benefit, startYear);
+      financials = {
+        investmentBase: totals.investmentBase,
+        investmentLow: totals.investmentLow,
+        investmentHigh: totals.investmentHigh,
+        annualBenefit: totals.annualBenefit,
+        byYear: costYears.map((c, i) => ({ year: c.year, cost: c.value, benefit: benefitYears[i]?.value ?? 0 })),
+        byWave: ROADMAP.waves.map((w) => {
+          const waveIds = ids.filter((id) => model.roadmapItems.find((r) => r.initiativeId === id)?.waveId === w.id);
+          const t = portfolioTotals(waveIds, model.financials);
+          return { waveId: w.id, label: w.label, cost: t.investmentBase };
+        }),
+        coverage: { estimated: totals.coverage.estimated, total: totals.coverage.total },
+        isPartial: totals.isPartial,
+      };
+    }
+  }
+
   return {
     mandate: ENGAGEMENT.mandate,
+    risks,
+    financials,
     clientName: ENGAGEMENT.clientName,
     engagementName: ENGAGEMENT.name,
     phase: ENGAGEMENT.phase,

@@ -15,12 +15,15 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import {
   CAPABILITIES, INITIATIVES, OPPORTUNITIES, DEPENDENCIES, ROADMAP, DEMO_ACCOUNTS, ENGAGEMENT,
-  DIMENSIONS, PRIORITY_MODEL, EFFORT_SCALE, THEMES,
+  DIMENSIONS, PRIORITY_MODEL, EFFORT_SCALE, THEMES, OBJECTIVES as SEED_OBJECTIVES,
 } from '@/data/seed';
 import type { Level } from '@/data/seed';
 import type {
   AppState, Model, Session, Publication, Submission, SubmissionType, Dependency,
+  KickoffAnswers, Objective, Risk, IngestedDocument,
 } from './types';
+import type { Candidate, DocStructure, Synthesis } from '@/lib/ingest/synthesise';
+import { emptyFinancials, type Financials, initiativeTotals, phaseInitiative, sumSeries, portfolioTotals, completeness } from '@/lib/calc/financials';
 import { buildClientPayload, diffPayloads, type PublishSelection } from '@/lib/publish/buildClientPayload';
 import { weightedScore, priorityBand, durationQuarters, earliestStart, detectConflicts, periodToIndex } from '@/lib/calc';
 
@@ -40,6 +43,44 @@ function seedModel(): Model {
       ]),
     ),
     aiReviewed: {},
+    kickoff: {
+      mandate: ENGAGEMENT.mandate,
+      sponsor: '',
+      horizonYears: 3,
+      primaryObjectives: [],
+      inScope: [],
+      outOfScope: [],
+      keyStakeholders: [],
+      knownConstraints: '',
+      successCriteria: '',
+      documentRequests: [],
+      completedAt: null,
+    },
+    objectives: SEED_OBJECTIVES.map((o) => ({ id: o.id, title: o.title, source: 'client_strategy' as const })),
+    risks: [],
+    documents: [],
+    // Two initiatives arrive pre-estimated so the dashboard is not empty on first open;
+    // the rest are deliberately unestimated so the coverage behaviour is visible.
+    financials: {
+      'INI-02': {
+        ...emptyFinancials('INI-02'),
+        oneTimeImplementation: 420_000, internalLabour: 180_000, externalLabour: 260_000,
+        technologyVendor: 140_000, recurringOperatingAnnual: 95_000, contingencyPct: 15,
+        expectedSavingsAnnual: 210_000, costAvoidanceAnnual: 480_000, benefitLagQuarters: 1,
+        confidence: 'medium', basis: 'bottom_up',
+        basisNote: 'Bottom-up estimate from the security remediation scope, benchmarked against two comparable programmes.',
+        rangeLowPct: -15, rangeHighPct: 25,
+      },
+      'INI-03': {
+        ...emptyFinancials('INI-03'),
+        oneTimeImplementation: 310_000, internalLabour: 220_000, externalLabour: 190_000,
+        technologyVendor: 85_000, recurringOperatingAnnual: 60_000, contingencyPct: 20,
+        expectedSavingsAnnual: 340_000, benefitLagQuarters: 2,
+        confidence: 'low', basis: 'analogue',
+        basisNote: 'Analogue estimate only — integration scope is not yet defined. Treat as indicative.',
+        rangeLowPct: -25, rangeHighPct: 45,
+      },
+    },
   };
 }
 
@@ -50,6 +91,8 @@ function seedState(): AppState {
     includeCapabilities: true,
     includeRoadmap: true,
     includeDependencies: true,
+    includeRisks: true,
+    includeFinancials: true,
   };
   const snapshot = buildClientPayload(model, selection);
   return {
@@ -76,6 +119,9 @@ function hashModel(m: Model): string {
     r: m.roadmapItems.map((x) => [x.initiativeId, x.startPeriod, x.waveId]),
     d: m.dependencies.map((x) => [x.id, x.type, x.validated, x.upstreamId, x.downstreamId]),
     h: m.humanRanks,
+    f: Object.entries(m.financials).map(([k, v]) => [k, v.oneTimeImplementation, v.internalLabour, v.externalLabour, v.technologyVendor, v.recurringOperatingAnnual, v.contingencyPct, v.expectedSavingsAnnual, v.revenueOpportunityAnnual, v.costAvoidanceAnnual]),
+    k: m.risks.map((x) => x.id),
+    b: m.objectives.map((x) => x.id),
   });
 }
 
@@ -95,6 +141,12 @@ interface Ctx extends AppState {
   publish: (selection: PublishSelection, note: string) => void;
   submitFeedback: (type: SubmissionType, targetRef: string, targetLabel: string, payload: Record<string, unknown>, comment: string) => void;
   reviewSubmission: (id: string, decision: 'accepted' | 'rejected', note: string) => void;
+  saveKickoff: (k: Partial<KickoffAnswers>, complete?: boolean) => void;
+  addDocument: (filename: string, docType: string, structure: DocStructure, synthesis: Synthesis) => string;
+  removeDocument: (id: string) => void;
+  acceptCandidate: (docId: string, candidate: Candidate, target: Record<string, string>) => string;
+  rejectCandidate: (docId: string, candidateId: string, note?: string) => void;
+  setFinancials: (initiativeId: string, patch: Partial<Financials>) => void;
   currentPublication: Publication | null;
   hasUnpublishedChanges: boolean;
   unpublishedCount: number;
@@ -314,6 +366,185 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const saveKickoff: Ctx['saveKickoff'] = useCallback((k, complete) => {
+    setState((s) => ({
+      ...s,
+      model: {
+        ...s.model,
+        kickoff: { ...s.model.kickoff, ...k, completedAt: complete ? new Date().toISOString() : s.model.kickoff.completedAt },
+        // Objectives captured at kickoff become selectable in strategic-alignment scoring.
+        objectives: complete || k.primaryObjectives
+          ? [
+              ...s.model.objectives.filter((o) => o.source !== 'kickoff'),
+              ...((k.primaryObjectives ?? s.model.kickoff.primaryObjectives) || [])
+                .filter((t) => t.trim().length > 2)
+                .map((title, i) => ({ id: `OBJ-K${i + 1}`, title: title.trim(), source: 'kickoff' as const })),
+            ]
+          : s.model.objectives,
+      },
+    }));
+  }, []);
+
+  const addDocument: Ctx['addDocument'] = useCallback((filename, docType, structure, synthesis) => {
+    const id = `DOC-${Date.now().toString(36).toUpperCase()}`;
+    setState((s) => ({
+      ...s,
+      model: {
+        ...s.model,
+        documents: [
+          { id, filename, docType, uploadedAt: new Date().toISOString(), uploadedBy: s.session?.name ?? 'Aberdeen', structure, synthesis, decisions: {} },
+          ...s.model.documents,
+        ],
+      },
+    }));
+    return id;
+  }, []);
+
+  const removeDocument: Ctx['removeDocument'] = useCallback((id) => {
+    setState((s) => ({ ...s, model: { ...s.model, documents: s.model.documents.filter((d) => d.id !== id) } }));
+  }, []);
+
+  /**
+   * Accepting a candidate is what makes it real. Each kind lands in a different part of
+   * the model, and the source document is retained as its provenance.
+   */
+  const acceptCandidate: Ctx['acceptCandidate'] = useCallback((docId, c, target) => {
+    let landedAs = '';
+    setState((s) => {
+      let m = s.model;
+      const doc = m.documents.find((d) => d.id === docId);
+      const ref = `${doc?.filename ?? 'document'} · ${c.section} · paragraph ${c.paragraphIndex + 1}`;
+
+      if (c.kind === 'objective') {
+        const id = `OBJ-D${m.objectives.length + 1}`;
+        landedAs = `Objective ${id}`;
+        m = { ...m, objectives: [...m.objectives, { id, title: target.title || c.title, source: 'document', sourceRef: ref }] };
+      }
+
+      if (c.kind === 'opportunity') {
+        const initiativeId = target.initiativeId || m.initiatives[0].id;
+        const id = `OPP-${String(m.opportunities.length + 1).padStart(3, '0')}`;
+        landedAs = `Opportunity ${id}`;
+        m = {
+          ...m,
+          opportunities: [
+            ...m.opportunities,
+            {
+              id, initiativeId,
+              title: target.title || c.title,
+              description: c.detail,
+              recommendedAction: target.recommendedAction || 'Define scope and owner, then size the effort.',
+              soWhat: c.detail,
+              technologyFunctionId: 'TF-01',
+              businessArea: m.initiatives.find((i) => i.id === initiativeId)?.businessArea ?? 'Technology',
+              tshirtSize: null, investmentType: null,
+              objectiveIds: [], capabilityIds: [], evidenceIds: [],
+              // Deliberately unscored: it enters the backlog reading "Not yet scored".
+              scores: DIMENSIONS.map((d) => ({ dimensionKey: d.key, level: null, rationale: '', source: 'human' as const, evidenceIds: [] })),
+              humanRank: null, humanRankRationale: null, published: false,
+              sourceRef: ref,
+            } as never,
+          ],
+        };
+      }
+
+      if (c.kind === 'dependency') {
+        const upstreamId = target.upstreamId;
+        const downstreamId = target.downstreamId;
+        if (upstreamId && downstreamId && upstreamId !== downstreamId) {
+          const id = `DEP-${String(m.dependencies.length + 1).padStart(2, '0')}`;
+          landedAs = `Dependency ${id} (proposed)`;
+          m = {
+            ...m,
+            dependencies: [
+              ...m.dependencies,
+              {
+                id, upstreamId, downstreamId,
+                type: target.type || 'hard_prerequisite',
+                rationale: c.detail,
+                triggerLanguage: c.excerpt,
+                confidence: c.confidence,
+                // Proposed, not validated — it does not constrain the schedule until reviewed.
+                validated: false,
+                origin: 'ai_inferred',
+              },
+            ],
+          };
+        }
+      }
+
+      if (c.kind === 'financial') {
+        const initiativeId = target.initiativeId || m.initiatives[0].id;
+        const line = (target.line || 'oneTimeImplementation') as keyof Financials;
+        const existing = m.financials[initiativeId] ?? emptyFinancials(initiativeId);
+        landedAs = `Financial model · ${m.initiatives.find((i) => i.id === initiativeId)?.name}`;
+        m = {
+          ...m,
+          financials: {
+            ...m.financials,
+            [initiativeId]: {
+              ...existing,
+              [line]: c.amount ?? null,
+              basis: existing.basis ?? 'analogue',
+              basisNote: existing.basisNote || `From ${ref}: "${c.excerpt.slice(0, 160)}"`,
+              confidence: existing.confidence ?? 'low',
+            } as Financials,
+          },
+        };
+      }
+
+      if (c.kind === 'risk') {
+        const id = `RSK-${String(m.risks.length + 1).padStart(2, '0')}`;
+        landedAs = `Risk ${id}`;
+        m = {
+          ...m,
+          risks: [
+            ...m.risks,
+            {
+              id, title: c.title, detail: c.detail,
+              severity: /\b(existential|critical|severe|halt|breach|outage|non[- ]compliance|penalt)\b/i.test(c.detail) ? 'high' : 'medium',
+              sourceRef: ref,
+              initiativeId: target.initiativeId || undefined,
+            },
+          ],
+        };
+      }
+
+      return {
+        ...s,
+        model: {
+          ...m,
+          documents: m.documents.map((d) =>
+            d.id !== docId ? d : { ...d, decisions: { ...d.decisions, [c.id]: { status: 'accepted', landedAs } } },
+          ),
+        },
+      };
+    });
+    return landedAs;
+  }, []);
+
+  const rejectCandidate: Ctx['rejectCandidate'] = useCallback((docId, candidateId, note) => {
+    setState((s) => ({
+      ...s,
+      model: {
+        ...s.model,
+        documents: s.model.documents.map((d) =>
+          d.id !== docId ? d : { ...d, decisions: { ...d.decisions, [candidateId]: { status: 'rejected', note } } },
+        ),
+      },
+    }));
+  }, []);
+
+  const setFinancials: Ctx['setFinancials'] = useCallback((initiativeId, patch) => {
+    mutate((m) => ({
+      ...m,
+      financials: {
+        ...m.financials,
+        [initiativeId]: { ...(m.financials[initiativeId] ?? emptyFinancials(initiativeId)), ...patch },
+      },
+    }));
+  }, []);
+
   const currentPublication = state.publications[state.publications.length - 1] ?? null;
   const currentHash = hashModel(state.model);
   const hasUnpublishedChanges = currentHash !== state.lastPublishedModelHash;
@@ -336,6 +567,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     ...state, ready, signIn, signOut, switchRole, resetDemo,
     setDimensionScore, markAiReviewed, setHumanRank, updateInitiative, moveRoadmapItem,
     updateDependency, addDependency, publish, submitFeedback, reviewSubmission,
+    saveKickoff, addDocument, removeDocument, acceptCandidate, rejectCandidate, setFinancials,
     currentPublication, hasUnpublishedChanges, unpublishedCount,
   };
 

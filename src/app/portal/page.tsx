@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
 import { Card, StatCard, Badge, Button, Banner, SectionTitle, EmptyState } from '@/components/ui';
 import { diffPayloads } from '@/lib/publish/buildClientPayload';
+import { money as moneyFmt } from '@/lib/calc/financials';
 
 export default function PortalOverview() {
   const { publications, currentPublication, submissions } = useStore();
@@ -35,11 +36,15 @@ export default function PortalOverview() {
         </Banner>
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
         <StatCard label="Initiatives on the roadmap" value={p.snapshot.roadmapItems.length} denominator={`across ${p.snapshot.waves.length} waves`} />
         <StatCard label="Published opportunities" value={p.snapshot.opportunities.length} denominator={`in ${p.snapshot.themes.length} investment themes`} />
         <StatCard label="Capabilities assessed" value={p.snapshot.capabilities.length} denominator="current state" />
         <StatCard label="Your submissions" value={mine} denominator={`${answered} reviewed by Aberdeen`} tone={mine > answered ? 'attention' : 'neutral'} />
+        {p.snapshot.financials && (
+          <StatCard label="Total investment" value={moneyFmt(p.snapshot.financials.investmentBase)}
+            denominator={p.snapshot.financials.isPartial ? `partial — ${p.snapshot.financials.coverage.estimated} of ${p.snapshot.financials.coverage.total} costed` : 'across the published roadmap'} />
+        )}
       </div>
 
       <div className="grid lg:grid-cols-3 gap-5">
@@ -80,6 +85,22 @@ export default function PortalOverview() {
               ))}
             </ul>
           </Card>
+
+          {p.snapshot.risks.length > 0 && (
+            <Card title="Risks we are tracking">
+              <div className="space-y-2">
+                {p.snapshot.risks.map((r) => (
+                  <div key={r.id} className={`rounded border px-3 py-2 ${r.severity === 'high' ? 'border-jasper/40 bg-jasper-tint' : 'border-gold/40 bg-gold-tint'}`}>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={r.severity === 'high' ? 'danger' : 'warn'}>{r.severity}</Badge>
+                      {r.initiativeName && <span className="text-2xs text-onyx-60">{r.initiativeName}</span>}
+                    </div>
+                    <p className="text-[13px] text-onyx mt-1 leading-relaxed">{r.title}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           <Card title="Your input">
             <p className="text-[13px] text-onyx-60 leading-relaxed mb-3">

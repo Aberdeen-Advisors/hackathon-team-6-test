@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
+import { JourneyRail } from '@/components/JourneyRail';
 import { Card, Button, Badge, Modal, Toast, Field, inputCls, SectionTitle, BandChip, EmptyState } from '@/components/ui';
 import { RoadmapTimeline, type TimelineItem } from '@/components/RoadmapTimeline';
 import { THEMES, ROADMAP, PRIORITY_MODEL, EFFORT_SCALE } from '@/data/seed';
@@ -138,6 +139,8 @@ export default function RoadmapPage() {
         }
       />
 
+      <JourneyRail />
+
       {(errors.length > 0 || warnings.length > 0) && (
         <div className="mb-4 space-y-2">
           {errors.map((c, i) => (
@@ -172,6 +175,29 @@ export default function RoadmapPage() {
           onSelect={setSelected}
         />
       </Card>
+
+      {model.risks.length > 0 && (
+        <Card className="mb-5" title="Risks raised from source material"
+          subtitle="Accepted from uploaded documents. Risks linked to an initiative are shown against it; all of them reach the executive view when published.">
+          <div className="space-y-2">
+            {model.risks.map((r) => (
+              <div key={r.id} className={`rounded border px-3.5 py-2.5 ${r.severity === 'high' ? 'border-jasper/40 bg-jasper-tint' : 'border-gold/40 bg-gold-tint'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge tone={r.severity === 'high' ? 'danger' : 'warn'}>{r.severity}</Badge>
+                      <span className="text-[13px] font-medium text-aberdeen">{r.title}</span>
+                    </div>
+                    <p className="text-2xs text-onyx-60 mt-1 leading-relaxed">{r.detail}</p>
+                    <p className="text-2xs text-onyx-40 mt-1">Source: {r.sourceRef}</p>
+                  </div>
+                  {r.initiativeId && <Badge>{initName[r.initiativeId]}</Badge>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-5">
         <Card title="Dependencies" subtitle="Only validated hard prerequisites constrain scheduling. Advisory types produce warnings.">

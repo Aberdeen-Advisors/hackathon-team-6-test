@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useStore, useDerived } from '@/lib/store/store';
 import { PageHeader } from '@/components/Shell';
+import { JourneyRail } from '@/components/JourneyRail';
 import { Card, StatCard, Badge, Button, Banner, SectionTitle } from '@/components/ui';
 import { ENGAGEMENT, THEMES, PRIORITY_MODEL, DIMENSIONS } from '@/data/seed';
 import { maturityGap, quadrant, round2 } from '@/lib/calc';
@@ -40,6 +41,7 @@ export default function WorkspaceOverview() {
         subtitle={ENGAGEMENT.mandate}
         actions={<Link href="/workspace/publish"><Button variant="primary" size="sm">Publish to client</Button></Link>}
       />
+      <JourneyRail />
 
       {hasUnpublishedChanges && (
         <div className="mb-5">

@@ -1,4 +1,6 @@
 import type { Opportunity, Level } from '@/data/seed';
+import type { DocStructure, Synthesis, Candidate, CandidateKind } from '@/lib/ingest/synthesise';
+import type { Financials } from '@/lib/calc/financials';
 
 export type Role = 'aberdeen' | 'client';
 
@@ -32,6 +34,49 @@ export interface RoadmapItem {
   moveReason?: string;
 }
 
+export interface KickoffAnswers {
+  mandate: string;
+  sponsor: string;
+  horizonYears: number;
+  primaryObjectives: string[];
+  inScope: string[];
+  outOfScope: string[];
+  keyStakeholders: { name: string; role: string; area: string }[];
+  knownConstraints: string;
+  successCriteria: string;
+  documentRequests: string[];
+  completedAt: string | null;
+}
+
+export interface Objective {
+  id: string;
+  title: string;
+  source: 'client_strategy' | 'kickoff' | 'document' | 'executive_stated';
+  sourceRef?: string;
+}
+
+export interface Risk {
+  id: string;
+  title: string;
+  detail: string;
+  severity: 'high' | 'medium';
+  sourceRef: string;
+  initiativeId?: string;
+}
+
+export interface IngestedDocument {
+  id: string;
+  filename: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  docType: string;
+  structure: DocStructure;
+  synthesis: Synthesis;
+  decisions: Record<string, { status: 'accepted' | 'rejected'; note?: string; landedAs?: string }>;
+}
+
+export type { Candidate, CandidateKind, Financials, DocStructure, Synthesis };
+
 export interface Model {
   capabilities: Capability[];
   initiatives: Initiative[];
@@ -40,6 +85,11 @@ export interface Model {
   roadmapItems: RoadmapItem[];
   humanRanks: Record<string, { rank: number; rationale: string }>;
   aiReviewed: Record<string, boolean>;
+  kickoff: KickoffAnswers;
+  objectives: Objective[];
+  risks: Risk[];
+  documents: IngestedDocument[];
+  financials: Record<string, Financials>;
 }
 
 export interface Publication {
@@ -94,8 +144,23 @@ export interface ClientDependency {
   id: string; upstreamName: string; downstreamName: string; type: string; rationale: string;
 }
 
+export interface ClientRisk { id: string; title: string; detail: string; severity: 'high' | 'medium'; initiativeName?: string }
+
+export interface ClientFinancialSummary {
+  investmentBase: number | null;
+  investmentLow: number | null;
+  investmentHigh: number | null;
+  annualBenefit: number | null;
+  byYear: { year: number; cost: number; benefit: number }[];
+  byWave: { waveId: string; label: string; cost: number | null }[];
+  coverage: { estimated: number; total: number };
+  isPartial: boolean;
+}
+
 export interface ClientPayload {
   mandate: string; clientName: string; engagementName: string; phase: string;
+  risks: ClientRisk[];
+  financials: ClientFinancialSummary | null;
   opportunities: ClientOpportunity[];
   capabilities: ClientCapability[];
   roadmapItems: ClientRoadmapItem[];
